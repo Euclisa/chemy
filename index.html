@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+
+<link
+  rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+/>
+
+<link rel="icon" type="image/x-icon" href="data/assets/favicon.ico">
+
+<script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<title>Chemical Reactions Graph Explorer</title>
+
+
+<link rel="stylesheet" href="css/main.css">
+<link rel="stylesheet" href="css/main_window.css">
+<link rel="stylesheet" href="css/popup.css">
+<link rel="stylesheet" href="css/reaction.css">
+<link rel="stylesheet" href="css/tooltip.css">
+<link rel="stylesheet" href="css/compound_info.css">
+<link rel="stylesheet" href="css/loading_overlay.css">
+<link rel="stylesheet" href="css/side_panel/main.css">
+<link rel="stylesheet" href="css/side_panel/results.css">
+<link rel="stylesheet" href="css/side_panel/user_input.css">
+
+
+</head>
+<body>
+    <div class="app-wrap" id="app" aria-live="polite">
+        <div id="loading-overlay">
+            <i class="fa fa-spinner fa-spin"></i>
+            <p id="loading-message">Loading...</p>
+            <button id="cancel-compute" style="display:none;">Cancel</button>
+        </div>
+        <div class="main-window" id="main" role="main" aria-label="Main content area">
+            <div class="main-window-content">
+                <strong>Chemical Reactions Graph Explorer</strong>
+                <p>Search for chemical compounds using the side panel and build reaction pathways between source and target substances</p>
+            </div>
+        </div>
+
+    <div class="side-panel" id="sidePanel" role="complementary" aria-hidden="true" aria-label="Side panel">
+        <div class="panel-content">
+            <div class="search-bar">
+                <input type="text" id="search-input" placeholder="Search compounds..." />
+                <button class="submit-btn" id="submit-button">
+                    <i class="fa fa-check"></i>
+                </button>
+            </div>
+
+            <div class="slider-container">
+                <label for="k-slider">Top K:</label>
+                <input type="range" id="k-slider" min="1" max="11" value="2">
+                <span id="k-value">2</span>
+            </div>
+            <div class="slider-container">
+                <label for="n-slider">Max Length N:</label>
+                <input type="range" id="n-slider" min="1" max="10" value="3">
+                <span id="n-value">3</span>
+            </div>
+
+            <div class="path-section">
+                <h3>Path</h3>
+                <div id="path-levels">
+                    <div id="level1" class="level selected" data-level="1">
+                        <div class="level-title">Sources</div>
+                        <div class="level-items"></div>
+                    </div>
+                    <div id="level2" class="level" data-level="2">
+                        <div class="level-title">Targets</div>
+                        <div class="level-items"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="catalog-section">
+                <h3>Catalog</h3>
+                <div class="results" id="results-container">
+                    <div class="loading-indicator">
+                        <i class="fa fa-spinner fa-spin"></i> Loading compounds...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button class="toggle-stripe" id="toggle" aria-expanded="false" aria-controls="sidePanel" title="Toggle side panel">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M8 5l8 7-8 7"></path>
+      </svg>
+    </button>
+  </div>
+
+<script src="js/init_data.js"></script>
+<script src="js/side_panel.js"></script>
+<script src="js/popup.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/misc.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

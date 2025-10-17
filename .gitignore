@@ -1,0 +1,12 @@
+.env/
+ord/
+__pycache__/
+.idea/
+conformers/
+*_tmp/
+
+*.backup
+/*.json
+/*.jsonl
+/*.txt
+merged_reactions_parsed.jsonl
