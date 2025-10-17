@@ -18,8 +18,6 @@ class ChemsDB:
         self.structures_dir = os.path.join(self.data_dir, 'structures')
         if not os.path.exists(self.structures_dir):
             os.makedirs(self.structures_dir)
-        
-        self.tmp_dir = os.path.join(data_dir, 'tmp/')
 
         self.raw_reactions_fn = os.path.join(self.data_dir, 'raw_reactions', "raw_reactions.jsonl")
         self.wiki_raw_reactions_fn = os.path.join(self.data_dir, 'raw_reactions', "wiki_raw_reactions.jsonl")
@@ -114,12 +112,10 @@ class ChemsDB:
 
             return [json.loads(x) for x in content.split('\n')]
     
-    def _write_jsonl(self, entries, filename, backup=True, force_natural_order=False):
+    def _write_jsonl(self, entries, filename, backup=True):
         staged_entries = entries
 
-        if not force_natural_order:
-            if filename not in self._file_sorting_prefs:
-                raise Exception(f"Sorting preferences aren't assigned for file '{filename}'")
+        if filename in self._file_sorting_prefs:
             
             sorting_prefs = self._file_sorting_prefs[filename]
             if sorting_prefs is not None:

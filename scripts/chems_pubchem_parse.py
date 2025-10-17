@@ -62,15 +62,26 @@ class ChemsParsePubchem(ChemsDB):
     @cached_property
     def name_cid_map(self):
         _name_cid_map = dict()
-        with open(self.chems_fn) as f:
-            for line in f:
-                entry = json.loads(line)
-                cid = entry['cid']
-                _name_cid_map[self._normalize_chem_name(entry['cmpdname'], is_clean=True)] = cid
-                for syn in entry['cmpdsynonym']:
-                    _name_cid_map[self._normalize_chem_name(syn, is_clean=True)] = cid
+        for chem in self.chems:
+            cid = chem['cid']
+            _name_cid_map[self._normalize_chem_name(chem['cmpdname'], is_clean=True)] = cid
+            for syn in chem['cmpdsynonym']:
+                _name_cid_map[self._normalize_chem_name(syn, is_clean=True)] = cid
 
         return _name_cid_map
+
+    @cached_property
+    def cas_cid_map(self):
+        _cas_cid_map = dict()
+        for chem in self.chems:
+            cid = chem['cid']
+            cas_list = chem['cas']
+            if cas_list:
+                for cas in cas_list:
+                    _cas_cid_map[cas] = cid
+        
+        return _cas_cid_map
+
 
     def __clear_runtime_chems_properties(self):
         for name, attr in inspect.getmembers(type(self)):
