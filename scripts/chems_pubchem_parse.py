@@ -1,6 +1,8 @@
 import json
 import re
 import shutil
+import os
+
 from rdkit import Chem
 from rdkit.Chem import AllChem, GraphDescriptors, inchi
 
@@ -16,6 +18,32 @@ class ChemsParsePubchem(ChemsDB):
 
     def __init__(self, data_dir):
         super().__init__(data_dir)
+
+        self.chems_descriptions_fn = os.path.join(self.data_dir, 'chems', 'chems_descriptions.jsonl')
+        self.chems_fn = os.path.join(self.data_dir, 'chems', "chems.jsonl")
+        self.chems_categories_fn = os.path.join(self.data_dir, 'chems', "chems_categories.jsonl")
+        self.wiki_chems_fn = os.path.join(self.data_dir, 'chems', "wiki_chems.jsonl")
+        self.hazards_chems_fn = os.path.join(self.data_dir, 'chems', "hazards_chems.jsonl")
+        self.chems_edges_fn = os.path.join(self.data_dir, 'chems', 'chems_edges.jsonl')
+        self.elements_fn = os.path.join(self.data_dir, 'chems', 'elements.jsonl')
+
+        self.categories_fn = os.path.join(self.data_dir, 'misc', "categories.jsonl")
+        self.background_cids_fn = os.path.join(self.data_dir, 'misc', 'background_cids.json')
+        self.commonness_sorted_cids_fn = os.path.join(self.data_dir, 'misc', 'commonness_sorted_cids.json')
+        self.cids_blacklist_fn = os.path.join(self.data_dir, 'misc', 'cids_blacklist.jsonl')
+        self.cids_filtered_synonyms_fn = os.path.join(self.data_dir, 'misc', 'cids_filtered_synonyms.jsonl')
+
+        self._file_sorting_prefs[self.chems_descriptions_fn] = 'cid'
+        self._file_sorting_prefs[self.chems_fn] = 'complexity'
+        self._file_sorting_prefs[self.chems_categories_fn] = 'cid'
+        self._file_sorting_prefs[self.wiki_chems_fn] = 'cid'
+        self._file_sorting_prefs[self.hazards_chems_fn] = 'cid'
+        self._file_sorting_prefs[self.chems_edges_fn] = 'eid'
+        self._file_sorting_prefs[self.elements_fn] = None
+
+        self._file_sorting_prefs[self.categories_fn] = 'code'
+        self._file_sorting_prefs[self.cids_blacklist_fn] = 'cid'
+        self._file_sorting_prefs[self.cids_filtered_synonyms_fn] = 'cid'
 
         self.complexity_thr = 550
         self.max_synonyms_thr = 150

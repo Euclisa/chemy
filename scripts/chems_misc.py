@@ -11,6 +11,10 @@ class ChemsMisc(ChemsParseReactions):
 
     def __init__(self, data_dir):
         super().__init__(data_dir)
+
+        self.unbalancing_cids_fn = os.path.join(self.data_dir, "unbalancing_cids.jsonl")
+
+        self._file_sorting_prefs[self.unbalancing_cids_fn] = ('count', True)
     
 
     def get_background_substances(self, k):

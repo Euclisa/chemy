@@ -19,6 +19,12 @@ KCAL_PER_HARTREE = 627.5094740631
 class ChemsThermoXtb(ChemsParseReactions):
     def __init__(self, data_dir):
         super().__init__(data_dir)
+
+        self.chems_thermo_xtb_fn = os.path.join(self.data_dir, 'thermo', 'chems_thermo_xtb.jsonl')
+        self.reactions_thermo_xtb_fn = os.path.join(self.data_dir, 'thermo', 'reactions_thermo_xtb.jsonl')
+
+        self._file_sorting_prefs[self.chems_thermo_xtb_fn] = 'cid'
+        self._file_sorting_prefs[self.reactions_thermo_xtb_fn] = 'rid'
     
 
     def get_structures(self, input_sdf, out_fn):

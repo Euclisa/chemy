@@ -22,6 +22,16 @@ class ChemsCRC(ChemsParsePubchem):
         self.crc_inorganic_abbreviations_map_fn = os.path.join(self.crc_assests_dir, 'inorganic_abbreviations_map.txt')
         self.crc_organic_abbreviations_map_fn = os.path.join(self.crc_assests_dir, 'organic_abbreviations_map.txt')
 
+        self.crc_inorganic_constants_fn = os.path.join(self.data_dir, 'crc_handbook', 'inorganic_constants.jsonl')
+        self.crc_organic_constants_fn = os.path.join(self.data_dir, 'crc_handbook', 'organic_constants.jsonl')
+        self.crc_flammability_fn = os.path.join(self.data_dir, 'crc_handbook', 'flammability.jsonl')
+
+        self.crc_unmapped_names_fn = os.path.join(self.data_dir, 'crc_handbook', 'crc_unmapped_names.txt')
+
+        self._file_sorting_prefs[self.crc_flammability_fn] = 'name'
+        self._file_sorting_prefs[self.crc_inorganic_constants_fn] = 'name'
+        self._file_sorting_prefs[self.crc_organic_constants_fn] = 'name'
+
         self.solubility_cats = {'insoluble', 'miscible', 'soluble', 'slightly soluble', 'very soluble'}
 
 
@@ -505,7 +515,7 @@ class ChemsCRC(ChemsParsePubchem):
     
 
     def parse_crc(self):
-        with NamedTemporaryFile(suffix='.jsonl', delete=True) as tmp:
+        with NamedTemporaryFile(suffix='.jsonl', delete=True) as tmp, self.no_warnings():
             tmp_fn = tmp.name
             self._parse_inorganic_constants_raw(tmp_fn)
             self._clean_inorganic_constants(tmp_fn)

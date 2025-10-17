@@ -1,22 +1,42 @@
-import json
-import re
-import shutil
-from rdkit import Chem, RDLogger
-from rdkit.Chem import inchi
 from chempy import balance_stoichiometry
 import hashlib
 import base64
+import os
 
 from chems_pubchem_parse import ChemsParsePubchem
 
-# Disable all RDKit warnings and info messages
-RDLogger.DisableLog('rdApp.*')
 
 
 class ChemsParseReactions(ChemsParsePubchem):
 
     def __init__(self, data_dir):
         super().__init__(data_dir)
+
+        self.reactions_parsed_fn = os.path.join(self.data_dir, 'reactions_parsed', "reactions_parsed.jsonl")
+        self.reactions_parsed_llm_fn = os.path.join(self.data_dir, 'reactions_parsed', "reactions_parsed_llm.jsonl")
+        self.reactions_parsed_ord_fn = os.path.join(self.data_dir, 'reactions_parsed', 'reactions_parsed_ord.jsonl')
+
+        self.reactions_details_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details.jsonl')
+        self.reactions_details_ord_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details_ord.jsonl')
+        self.reactions_details_llm_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details_llm.jsonl')
+        self.reactions_descriptions_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_descriptions.jsonl')
+
+        self.unmapped_names_fn = os.path.join(self.data_dir, "unmapped_names.jsonl")
+        self.chem_names_blacklisted_fn = os.path.join(self.data_dir, "unmapped_names_blacklisted.txt")
+        self.unmapped_smiles_fn = os.path.join(self.data_dir, 'unmapped_smiles.jsonl')
+        self.chem_smiles_blacklisted_fn = os.path.join(self.data_dir, 'unmapped_smiles_blacklisted.txt')
+
+        self._file_sorting_prefs[self.reactions_parsed_fn] = 'rid'
+        self._file_sorting_prefs[self.reactions_parsed_llm_fn] = 'rid'
+        self._file_sorting_prefs[self.reactions_parsed_ord_fn] = 'rid'
+
+        self._file_sorting_prefs[self.reactions_details_fn] = 'rid'
+        self._file_sorting_prefs[self.reactions_details_ord_fn] = 'rid'
+        self._file_sorting_prefs[self.reactions_details_llm_fn] = 'rid'
+        self._file_sorting_prefs[self.reactions_descriptions_fn] = 'rid'
+
+        self._file_sorting_prefs[self.unmapped_names_fn] = ('count', True)
+        self._file_sorting_prefs[self.unmapped_smiles_fn] = ('count', True)
 
         self.sources_priority = dict()
     
@@ -33,19 +53,6 @@ class ChemsParseReactions(ChemsParsePubchem):
         products_str = format_components(reaction['products'])
 
         return f"{reagents_str} -> {products_str}"
-    
-
-    def process_raw_reactions(self, reactions_fn):
-        with open(reactions_fn) as f:
-            entries = [json.loads(x) for x in f.read().strip().split('\n')]
-        
-        for entry in entries:
-            reactions = entry['reactions']
-            for react in reactions:
-                react = react.strip()
-                reagents, products = react.split('->')
-                reagents = reagents.strip().split('+')
-                products = products.strip().split('+')
 
 
     def _balance_reaction(self, reaction):
@@ -94,20 +101,6 @@ class ChemsParseReactions(ChemsParsePubchem):
 
         self._write_jsonl(reactions, reactions_parsed_fn)        
         self.log(f"Balanced {balanced_cnt} out of {len(reactions)}")
-    
-
-    def find_all_unicode_chars_in_raw_reactions(self):
-        non_ascii = dict()
-        with open(self.raw_reactions_verdict_fn) as f:
-            for line in f:
-                reaction = json.loads(line)['reaction']
-                non_ascii_curr = [char for char in reaction if ord(char) > 127]
-                for char in non_ascii_curr:
-                    if char not in non_ascii:
-                        non_ascii[char] = 0
-                    non_ascii[char] += 1
-        
-        return non_ascii
 
     
     def _get_reaction_hash(self, reaction):
