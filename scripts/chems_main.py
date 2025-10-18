@@ -72,15 +72,15 @@ class ChemsMain(ChemsLLMParse, ChemsOrdParse, ChemsSql):
     
 
     def test(self):
-        for fn in self._file_sorting_prefs:
-            if fn == self.chems_fn:
-                entries = self._load_jsonl(fn)
-                self._write_jsonl(entries, fn)
+        cnt = 0
+        for chem in self.chems:
+            if 'annotation' in chem or chem['wiki']:
+                cnt += 1
+        self.log(cnt)
 
 
 
 
 if __name__ == "__main__":
     chems = ChemsMain('data/')
-    chems.merge_details()
-    chems.populate_db()
+    chems.test()

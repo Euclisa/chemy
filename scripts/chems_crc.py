@@ -5,15 +5,15 @@ import os
 
 from tempfile import NamedTemporaryFile
 
-from chems_pubchem_parse import ChemsParsePubchem
+from chems_properties import ChemsProperties
 
 
-class ChemsCRC(ChemsParsePubchem):
+class ChemsCRC(ChemsProperties):
 
     def __init__(self, data_dir):
         super().__init__(data_dir)
 
-        self.crc_assests_dir = os.path.join(self.data_dir, 'assets', 'crc_handbook')
+        self.crc_assests_dir = os.path.join(self.chems_properties_assets_dir, 'crc_handbook')
 
         self.crc_flammability_pdf_fn = os.path.join(self.crc_assests_dir, 'flammability.pdf')
         self.crc_inorganic_constants_pdf_fn = os.path.join(self.crc_assests_dir, 'inorganic_constants.pdf')
@@ -22,11 +22,12 @@ class ChemsCRC(ChemsParsePubchem):
         self.crc_inorganic_abbreviations_map_fn = os.path.join(self.crc_assests_dir, 'inorganic_abbreviations_map.txt')
         self.crc_organic_abbreviations_map_fn = os.path.join(self.crc_assests_dir, 'organic_abbreviations_map.txt')
 
-        self.crc_inorganic_constants_fn = os.path.join(self.data_dir, 'crc_handbook', 'inorganic_constants.jsonl')
-        self.crc_organic_constants_fn = os.path.join(self.data_dir, 'crc_handbook', 'organic_constants.jsonl')
-        self.crc_flammability_fn = os.path.join(self.data_dir, 'crc_handbook', 'flammability.jsonl')
+        self.crc_parsed_dir = os.path.join(self.chems_properties_dir, 'crc_handbook')
+        self.crc_inorganic_constants_fn = os.path.join(self.crc_parsed_dir, 'inorganic_constants.jsonl')
+        self.crc_organic_constants_fn = os.path.join(self.crc_parsed_dir, 'organic_constants.jsonl')
+        self.crc_flammability_fn = os.path.join(self.crc_parsed_dir, 'flammability.jsonl')
 
-        self.crc_unmapped_names_fn = os.path.join(self.data_dir, 'crc_handbook', 'crc_unmapped_names.txt')
+        self.crc_unmapped_names_fn = os.path.join(self.crc_parsed_dir, 'crc_unmapped_names.txt')
 
         self._file_sorting_prefs[self.crc_flammability_fn] = 'name'
         self._file_sorting_prefs[self.crc_inorganic_constants_fn] = 'name'

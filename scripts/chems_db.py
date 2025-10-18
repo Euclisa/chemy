@@ -90,7 +90,7 @@ class ChemsDB:
                 f.write(json.dumps(entry) + '\n')
 
 
-    def log(self, message="", level='info'):
+    def log(self, message=""):
         with self.print_lock:
             self.__logger.info(message)
     
