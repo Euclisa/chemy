@@ -184,3 +184,13 @@ class ChemsParseReactions(ChemsParsePubchem):
         reaction = self._assemble_reaction(reaction)
 
         return reaction, unmapped_names
+
+
+    def _get_parsed_reactions_participants_norm_names(self):
+        reactions = self._load_jsonl(self.reactions_parsed_fn)
+
+        norm_names = set()
+        for react in reactions:
+            norm_names.update(entry['norm_name'] for entry in react['reagents']+react['products'])
+        
+        return norm_names

@@ -1,7 +1,10 @@
-from chems_pubchem_parse import ChemsParsePubchem
+from rich.table import Table
+from rich.rule import Rule
+
+from chems_parse_reactions import ChemsParseReactions
 
 
-class ChemsSynonyms(ChemsParsePubchem):
+class ChemsSynonyms(ChemsParseReactions):
 
     def __init__(self, data_dir):
         super().__init__(data_dir)
@@ -17,7 +20,7 @@ class ChemsSynonyms(ChemsParsePubchem):
         self._write_jsonl(res_entries, self.cids_filtered_synonyms_fn)
 
 
-    def resolve_conflicting_synonyms(self):
+    def resolve_conflicting_synonyms(self, only_relevant=True):
 
         print("Resolve options:")
         print("  s0   - discard conflicted synonym from both compounds")
@@ -29,9 +32,12 @@ class ChemsSynonyms(ChemsParsePubchem):
         print()
 
         def display_conflict(conflict_i, conflict_norm_name, cid1, cid2):
-
+            
             def get_conflict_inds(chem):
-                return [i for i, x in enumerate(chem['cmpdsynonym']) if self._normalize_chem_name(x, is_clean=True) == conflict_norm_name]
+                return [
+                    i for i, x in enumerate(chem['cmpdsynonym'])
+                    if self._normalize_chem_name(x, is_clean=True) == conflict_norm_name
+                ]
             
             def get_conflict_synonyms_str(syns, conflict_inds):
                 return '; '.join(f"'{syns[i]}' ({i}/{len(syns)})" for i in conflict_inds)
@@ -46,30 +52,23 @@ class ChemsSynonyms(ChemsParsePubchem):
                 syns_num_to_disp = 10
                 top_syns_str = ', '.join(f'"{syn}"' for syn in syns[:syns_num_to_disp])
 
-                print(f"Compound {compound_i}: {name} (CID: {cid})")
-                print(f"  Conflict synonyms: {conflict_synonyms_str}")
-                print(f"  First {syns_num_to_disp} synonyms: {top_syns_str}")
-                print(f"  InChI: {inchi}")
-                print(f"  CAS: {cas}")
+                table = Table(
+                    title=f"[bold cyan]Compound {compound_i}: {name}[/bold cyan] (CID: [yellow]{cid}[/yellow])",
+                    show_header=False,
+                    expand=True
+                )
+                table.add_row("Conflict synonyms", f"[magenta]{conflict_synonyms_str}[/magenta]")
+                table.add_row(f"First {syns_num_to_disp} synonyms", f"{top_syns_str}")
+                table.add_row("InChI", f"{inchi}")
+                table.add_row("CAS", f"{cas}")
+                self.print(table)
 
-            chem1 = self.cid_chem_map[cid1]
-            inchi1 = chem1['inchi']
-            
-            chem2 = self.cid_chem_map[cid2]
-            inchi2 = chem2['inchi']
-            
-            inchi_overlap = 'yes' if inchi1 in inchi2 or inchi2 in inchi1 else 'no'
-            
-            print("=" * 80)
-            print(f"{conflict_i}. CONFLICT: '{conflict_norm_name}'")
-            print("-" * 80)
+            self.print(Rule(f"[bold yellow]CONFLICT {conflict_i}: '{conflict_norm_name}'[/bold yellow]"))
+
+            chem1, chem2 = self.cid_chem_map[cid1], self.cid_chem_map[cid2]
             display_compound(1, chem1, cid1)
-            print()
+            self.print(Rule())
             display_compound(2, chem2, cid2)
-            print()
-            print(f"InChI overlap: {inchi_overlap}")
-            print("=" * 80)
-            print()
 
         conflict_map = dict()
         cids_to_delete = set()
@@ -84,9 +83,13 @@ class ChemsSynonyms(ChemsParsePubchem):
             
             stop = False
             conflict_map = {name: cids for name, cids in conflict_map.items() if len(cids) > 1}
-            print()
-            print(f"{len(conflict_map)} conflicting names pending resolution")
-            print()
+            if only_relevant:
+                relevant_names = self._get_parsed_reactions_participants_norm_names()
+                conflict_map = {name: cids for name, cids in conflict_map.items() if name in relevant_names}
+
+            self.print()
+            self.print(f"{len(conflict_map)} conflicting names pending resolution")
+            self.print()
             conflict_i = 0
             for norm_name in conflict_map:
                 conflict_cids = [cid for cid in conflict_map[norm_name] if cid not in cids_to_delete]
@@ -104,28 +107,28 @@ class ChemsSynonyms(ChemsParsePubchem):
                         cids_syns_to_del[cid1].add(norm_name)
                         cids_syns_to_del[cid2].add(norm_name)
                         conflict_cids = conflict_cids[2:]
-                        print(f"* Removed synonym from both compounds")
+                        self.print(f"* Removed synonym from both compounds")
                     elif decision == 's1':
                         cids_syns_to_del[cid2].add(norm_name)
                         conflict_cids.pop(1)
-                        print(f"* Removed synonym from CID {cid2}")
+                        self.print(f"* Removed synonym from CID {cid2}")
                     elif decision == 's2':
                         cids_syns_to_del[cid1].add(norm_name)
                         conflict_cids.pop(0)
-                        print(f"* Removed synonym from CID {cid1}")
+                        self.print(f"* Removed synonym from CID {cid1}")
                     elif decision == 'c1':
                         cids_to_delete.add(cid2)
                         conflict_cids.pop(1)
-                        print(f"* Removed compound with CID {cid2}")
+                        self.print(f"* Removed compound with CID {cid2}")
                     elif decision == 'c2':
                         cids_to_delete.add(cid1)
                         conflict_cids.pop(0)
-                        print(f"* Removed compound with CID {cid1}")
+                        self.print(f"* Removed compound with CID {cid1}")
                     elif decision == 'exit':
                         stop = True
                         break
                     else:
-                        print(f"!!! Invalid decision '{decision}' !!!")
+                        self.print(f"[red]!!! Invalid decision '{decision}' !!![/red]")
                         continue
                     
                     print()
@@ -151,3 +154,8 @@ class ChemsSynonyms(ChemsParsePubchem):
                     resolved_chems.append(chem)
 
             self._update_chems(resolved_chems)
+
+
+if __name__ == "__main__":
+    synonyms = ChemsSynonyms('data/')
+    synonyms.resolve_conflicting_synonyms()

@@ -88,6 +88,11 @@ class ChemsDB:
         with open(filename, 'w') as f:
             for entry in staged_entries:
                 f.write(json.dumps(entry) + '\n')
+    
+
+    def print(self, message=""):
+        with self.print_lock:
+            self._console.print(message)
 
 
     def log(self, message=""):
