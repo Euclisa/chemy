@@ -20,40 +20,40 @@ function showPopup(type, data) {
 
     if (type === 'node') {
         const compound = cidToCompound.get(data.id);
+        const compoundProperties = cidToCompoundProperties.get(data.id);
         title.textContent = compound ? compound.cmpdname : 'Node Info';
         
         let html = '<div class="compound-structure">';
         html += `<img src="data/structures/${data.id}.svg" alt="${compound.cmpdname}" onerror="this.style.display='none'">`;
         html += '</div>';
-        
+
         html += '<div class="compound-info">';
-        html += '<div class="compound-info-row">';
-        html += '<span class="compound-info-label">CID:</span>';
-        html += `<span class="compound-info-value"><a href="https://pubchem.ncbi.nlm.nih.gov/compound/${data.id}" target="_blank">${data.id}</a></span>`;
-        html += '</div>';
-        
-        if (compound && compound.wiki) {
+        for (const entry of compoundProperties) {
+            const label = entry.property;
+            const value = entry.value.split('\n').join('<br>');
             html += '<div class="compound-info-row">';
-            html += '<span class="compound-info-label">Wikipedia:</span>';
-            html += `<span class="compound-info-value"><a href="${compound.wiki}" target="_blank">${compound.wiki.split('/').at(-1).replace('_', ' ')}</a></span>`;
+            html += `<span class="compound-info-label table-info">${label}</span>`;
+            html += '<span class="compound-info-value table-info">'
+            if (label.toLowerCase().includes('pubchem') && label.toLowerCase().includes('cid'))
+                html += `<a href="https://pubchem.ncbi.nlm.nih.gov/compound/${value}" target="_blank">${value}</a>`;
+            else if (label.toLowerCase().includes('wikipedia'))
+                html += `<a href="${value}" target="_blank">${value.split('/').at(-1).replace('_', ' ')}</a>`;
+            else
+                html += value;
+            html += '</span>';
             html += '</div>';
         }
-        
-        html += '<div class="compound-info-row">';
-        html += '<span class="compound-info-label">Type:</span>';
-        html += `<span class="compound-info-value">${compound.organic ? 'Organic' : 'Inorganic'}</span>`;
-        html += '</div>';
-
         html += '</div>';
         
         const description = cidToDescription.get(data.id);
         if (description) {
             html += '<div class="compound-info">';
             html += '<span class="compound-info-label description">Description:</span>';
-            description_html = '<p>' + description.split('\n\n').join('</p><p>') + '</p>';
-            html += `<span class="compound-info-value">${description_html}</span>`;
+            const description_html = '<p>' + description.split('\n\n').join('</p><p>') + '</p>';
+            html += `<span class="compound-info-value description">${description_html}</span>`;
             html += '</div>';
             html += '</div>';
+
         }
         
         content.innerHTML = html;

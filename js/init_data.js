@@ -4,7 +4,7 @@ let reactionsData = [];
 let fuse = null;
 let currentResults = [];
 let currentPage = 0;
-const RESULTS_PER_PAGE = 20;
+const RESULTS_PER_PAGE = 200;
 let selectedCIDs = new Set();
 let cidToCompound = new Map();
 let originalMainContent = '';
@@ -24,6 +24,7 @@ let cidToDescription = new Map();
 let ridToDescription = new Map();
 let commonnesSortedCids = []
 let cidToEdges = new Map();
+let cidToCompoundProperties = new Map();
 
 async function loadData(fileName) {
     try {
@@ -59,6 +60,7 @@ async function initializeData() {
         backgroundCids = new Set(backgroundCids.map(Number));
         commonnesSortedCids = await loadData('data/misc/commonness_sorted_cids.json');
         commonnesSortedCids = commonnesSortedCids.map(Number);
+        let compoundProperties = await loadData('data/chems_properties/chems_properties.jsonl');
         
         let chemsDescriptionsLoaded = await loadData('data/chems/chems_descriptions.jsonl');
         chemsDescriptionsLoaded.forEach(entry => cidToDescription.set(entry.cid, entry.description));
@@ -86,6 +88,10 @@ async function initializeData() {
 
         chemsData.forEach(comp => {
             cidToCompound.set(comp.cid, comp);
+        });
+
+        compoundProperties.forEach(entry => {
+            cidToCompoundProperties.set(entry.cid, entry.properties)
         });
 
         edgesData.forEach(edge => {

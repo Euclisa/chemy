@@ -144,8 +144,8 @@ class ChemsParsePubchem(ChemsDB):
         return count
     
 
-    def _rich_track(self, iterator, description, total=None):
-        return track(iterator, description=description, total=total, console=self.console, auto_refresh=False)
+    def _rich_track(self, iterator, description, total=None, transient=False):
+        return track(iterator, description=description, total=total, console=self._console, auto_refresh=False, transient=transient)
     
 
     def _get_mol_fingerprint(self, mol):
