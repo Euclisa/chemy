@@ -72,11 +72,29 @@ class ChemsMain(ChemsLLMParse, ChemsOrdParse, ChemsSql):
     
 
     def test(self):
+        raw_verdict = self._load_jsonl(self.raw_reactions_verdict_fn)
+        rid_entry = dict()
         cnt = 0
-        for chem in self.chems:
-            if 'annotation' in chem or chem['wiki']:
+        for entry in raw_verdict:
+            react = entry['reaction']
+            react_parsed, _ = self._parse_reaction_str(react)
+            if not react_parsed:
+                continue
+
+            rid = react_parsed['rid']
+            if rid in rid_entry and rid_entry[rid]['confidence'] > entry['confidence']:
+                continue
+            
+            entry['rid'] = react_parsed['rid']
+            rid_entry[rid] = entry
+            if entry['confidence'] >= 0.4:
                 cnt += 1
-        self.log(cnt)
+        
+        self.print(cnt)
+
+        self._write_jsonl(list(rid_entry.values()), self.raw_reactions_verdict_fn)
+
+        
 
 
 
