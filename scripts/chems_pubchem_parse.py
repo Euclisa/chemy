@@ -9,7 +9,7 @@ from rdkit.Chem import AllChem, GraphDescriptors, inchi
 from functools import cached_property
 import inspect
 
-from rich.progress import track
+from rich.progress import track, Progress
 
 from chems_db import ChemsDB
 
@@ -144,8 +144,23 @@ class ChemsParsePubchem(ChemsDB):
         return count
     
 
-    def _rich_track(self, iterator, description, total=None, transient=False):
-        return track(iterator, description=description, total=total, console=self._console, auto_refresh=False, transient=transient)
+    def _rich_track(self, iterator, description, total=None, transient=False, auto_refresh=True):
+        if total is None:
+            try:
+                total = len(iterator)
+            except TypeError:
+                pass
+
+        with self._rich_progress(transient=transient, auto_refresh=auto_refresh) as progress:
+            task = progress.add_task(description=description, total=total)
+            for item in iterator:
+                yield item
+                progress.update(task, advance=1)
+                progress.refresh()
+    
+
+    def _rich_progress(self, transient=False, auto_refresh=True):
+        return Progress(console=self._console, auto_refresh=auto_refresh, transient=transient, refresh_per_second=1)
     
 
     def _get_mol_fingerprint(self, mol):
@@ -273,7 +288,8 @@ class ChemsParsePubchem(ChemsDB):
                 r'\d{3,}',
                 r'[a-z]{14}-[a-z]{10}-[a-z]',
                 r'\s{2,}',
-                r'\b[nm]m\b'
+                r'\b[nm]m\b',
+                r'-,'
             ]
 
             DISCARD_PATTERNS_IGNORECASE = [
@@ -289,8 +305,7 @@ class ChemsParsePubchem(ChemsDB):
                     re.search(p, name, flags=re.IGNORECASE) for p in DISCARD_PATTERNS_IGNORECASE):
                 return False
             # UNII identifiers
-            if re.fullmatch(r'[a-z0-9]{10}', name) and re.search(r'[abdefgijklmqrtuvwxyz]', name) and re.search(r'\d',
-                                                                                                                name):
+            if re.fullmatch(r'[a-z0-9]{10}', name) and re.search(r'[abdefgijklmqrtuvwxyz]', name) and re.search(r'\d', name):
                 return False
 
             return True
@@ -510,3 +525,8 @@ class ChemsParsePubchem(ChemsDB):
         chem_name = re.sub(r'\s+', '', chem_name)
 
         return chem_name
+
+
+if __name__ == "__main__":
+    parse = ChemsParsePubchem('data/')
+    parse.organize_chems_file()

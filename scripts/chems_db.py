@@ -30,13 +30,13 @@ class ChemsDB:
         traceback.install(console=self._console)
 
         logging.basicConfig(
-            level="INFO",
+            level=logging.ERROR,
             format="%(message)s",
             datefmt="[%X]",
             handlers=[RichHandler(console=self._console)]
         )
-
         self.__logger = logging.getLogger("ChemsDB")
+        self.__logger.setLevel(logging.INFO)
 
         self.__no_warnings = False
     

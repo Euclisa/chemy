@@ -15,6 +15,7 @@ class ChemsParseReactions(ChemsParsePubchem):
         self.reactions_parsed_fn = os.path.join(self.data_dir, 'reactions_parsed', "reactions_parsed.jsonl")
         self.reactions_parsed_llm_fn = os.path.join(self.data_dir, 'reactions_parsed', "reactions_parsed_llm.jsonl")
         self.reactions_parsed_ord_fn = os.path.join(self.data_dir, 'reactions_parsed', 'reactions_parsed_ord.jsonl')
+        self.reactions_parsed_fixed_fn = os.path.join(self.data_dir, 'reactions_parsed', 'reactions_parsed_fixed.jsonl')
 
         self.reactions_details_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details.jsonl')
         self.reactions_details_ord_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details_ord.jsonl')
@@ -132,58 +133,6 @@ class ChemsParseReactions(ChemsParsePubchem):
         reaction['rid'] = self._get_reaction_hash(reaction)
 
         return reaction
-
-
-    
-    def _parse_reaction_str(self, reaction_str: str):
-        parts = reaction_str.split('->')
-        if len(parts) != 2:
-            return None, set()
-
-        reagents_str, products_str = parts
-        parse_success = True
-        unmapped_names = set()
-
-        def parse_compounds(compound_str, skip_names, existing_cids=None):
-            if existing_cids is None:
-                existing_cids = set()
-
-            compounds, cids = [], set()
-            for name in compound_str.split('+'):
-                norm = self._normalize_chem_name(name)
-                if norm in skip_names:
-                    continue
-
-                clean = self._clean_chem_name(name)
-                cid = self.name_cid_map.get(norm)
-                if cid is None:
-                    nonlocal parse_success
-                    parse_success = False
-                    unmapped_names.add((norm, clean))
-
-                if cid is None or cid not in existing_cids | cids:
-                    compounds.append({'norm_name': norm, 'original_name': clean, 'cid': cid})
-                    cids.add(cid)
-            
-            compounds = list({c["cid"]: c for c in compounds}.values())
-            if parse_success:
-                compounds.sort(key=lambda c: c['cid'])
-
-            return compounds, cids
-
-        reagents, reagents_cids = parse_compounds(reagents_str, {"light", "heat", "catalyst"})
-        products, products_cids = parse_compounds(products_str, {"otherproducts"}, reagents_cids)
-
-        if products_cids & reagents_cids or not products or not reagents:
-            parse_success = False
-
-        if not parse_success:
-            return None, unmapped_names
-
-        reaction = {'reagents': reagents, 'products': products}
-        reaction = self._assemble_reaction(reaction)
-
-        return reaction, unmapped_names
 
 
     def _get_parsed_reactions_participants_norm_names(self):

@@ -1,16 +1,16 @@
 from openai import OpenAI
 import threading
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 import json
 import re
 import random
 
-from chems_llm import ChemsLLM
+from chems_llm_parse import ChemsLLMParse
 
 
 
-class ChemsLLMFetch(ChemsLLM):
+class ChemsLLMFetch(ChemsLLMParse):
     def __init__(self, data_dir, api_key=None):
         super().__init__(data_dir)
 
@@ -24,11 +24,12 @@ class ChemsLLMFetch(ChemsLLM):
         self.tokens_total_lock = threading.Lock()
 
     
-    def __fetch_llm_answer(self, messages, model, reasoning_effort="medium"):
+    def __fetch_llm_answer(self, messages, model, reasoning_effort="medium", max_completion_tokens=10000):
         completion = self.client.chat.completions.create(
             model=model,
             messages=messages,
-            reasoning_effort=reasoning_effort
+            reasoning_effort=reasoning_effort,
+            max_completion_tokens=max_completion_tokens
             )
 
         with self.tokens_total_lock:
@@ -38,7 +39,10 @@ class ChemsLLMFetch(ChemsLLM):
         return completion.choices[0].message.content
 
     def __get_processed_entries(self, out_fn, key):
-        return set(x[key] for x in self._load_jsonl(out_fn))
+        entries = self._load_jsonl(out_fn)
+        if callable(key):
+            return {k for x in entries if (k := key(x)) is not None}
+        return {x[key] for x in entries}
 
 
     def __get_reactions_from_response(self, response: str):
@@ -50,8 +54,11 @@ class ChemsLLMFetch(ChemsLLM):
         return reactions
     
     
-    def __fetch_raw_reactions(self, chem, mode="documented_rp"):
+    def __fetch_raw_reactions(self, chem, mode=None):
         try:
+            if mode is None:
+                mode = "documented_rp"
+
             chem_name = chem['cmpdname']
             
             if mode == "documented_rp":
@@ -75,7 +82,7 @@ class ChemsLLMFetch(ChemsLLM):
 
             instruct = \
             f"Please provide a comprehensive and diverse list of documented chemical reactions involving {chem_name}, where it appears as {compound_role}. " \
-            f"{special_requirement} "
+            f"{special_requirement} " \
             "Write the reactions as schemes using only '->' and '+' symbols. Use the full chemical names of substances instead of formulas or generic terms. " \
             "Do not include balancing coefficients, comments, or any markup - only the reaction schemes themselves one per line. " \
             "If no such substance exists or no documented reactions are available, return 'None'."
@@ -98,8 +105,8 @@ class ChemsLLMFetch(ChemsLLM):
                 if reactions:
                     break
             else:
-                self.log(f"Failed to fetch reactions for '{chem_name}'")
-                return None
+                self.log_warn(f"Failed to fetch reactions for '{chem_name}'")
+                return {'cid': chem['cid'], 'reactions': None}
             
             #self.log(f"Got {len(reactions)} initial reactions for {chem_name}")
             
@@ -114,115 +121,80 @@ class ChemsLLMFetch(ChemsLLM):
                 self.log(f"Failed to fetch revalidated reactions for '{chem_name}'. Assuming all are valid...")
                 reactions_revalid = reactions
             
-            self.log(f"Got {len(reactions_revalid)} reactions for {chem_name} with '{model}'; CTT: {self.completion_tokens_total}")
+            self.log(f"Got {len(reactions_revalid)} reactions for '{chem_name}' with '{model}'; CTT: {self.completion_tokens_total}")
         
         except Exception as e:
             self.log(f"Exception in '__fetch_raw_reactions': {e}")
             return None
         
         return {'cid': chem['cid'], 'reactions': reactions_revalid}
+    
+
+    
+    def __get_raw_reactions(self, out_fn, max_workers, mode=None, criteria=None):
+        if criteria is None:
+            criteria = lambda x: True
+
+        processed = self.__get_processed_entries(out_fn, 'cid')
+
+        chems_staged = list(filter(lambda chem: chem['cid'] not in processed and criteria(chem), self.chems))
+        self.log(f"Submitted {len(chems_staged)} compounds for reactions generation")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(out_fn, 'a') as f_out:
+            futures = []
+            for chem in chems_staged:
+                futures.append(executor.submit(self.__fetch_raw_reactions, chem, mode))
+            
+            for future in self._rich_track(as_completed(futures), "Generating reactions", total=len(futures)):
+                res = future.result()
+                if res is None:
+                    continue
+                f_out.write(json.dumps(res) + '\n')
+                f_out.flush()
 
 
 
     def get_raw_reactions(self, max_workers=1):        
-        processed = self.__get_processed_entries(self.raw_reactions_fn, 'cid')
-        
-        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(self.raw_reactions_fn, 'a') as f_out:
-            futures = []
-            for chem in self.chems:
-                if chem['cid'] not in processed:
-                    futures.append(executor.submit(self.__fetch_raw_reactions, chem))
-            
-            for future in as_completed(futures):
-                res = future.result()
-                if res is None:
-                    continue
-                f_out.write(json.dumps(res) + '\n')
-                f_out.flush()
+        self.__get_raw_reactions(self.raw_reactions_fn, max_workers)
     
 
-    def get_uncommon_raw_reactions_for_wiki_chems(self, max_workers=1):        
-        with open(self.wiki_chems_fn) as f:
-            wiki_chems_cids = set([json.loads(x)['cid'] for x in f.read().strip().split('\n')])
-        
-        processed = self.__get_processed_entries(self.wiki_raw_reactions_fn, 'cid')
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(self.wiki_raw_reactions_fn, 'a') as f_out:
-            futures = []
-            for chem in self.chems:
-                cid = chem['cid']
-                if cid not in processed and cid in wiki_chems_cids:
-                    futures.append(executor.submit(self.__fetch_raw_reactions, chem, "documented_less_common_rp"))
-            
-            for future in as_completed(futures):
-                res = future.result()
-                if res is None:
-                    continue
-                f_out.write(json.dumps(res) + '\n')
-                f_out.flush()
+    def get_uncommon_raw_reactions_for_wiki_chems(self, max_workers=1):                
+        self.__get_raw_reactions(self.wiki_raw_reactions_fn, max_workers, mode="documented_less_common_rp", criteria=lambda x: x['wiki'])
     
 
-    def get_rare_raw_reactions_for_top_chems(self, max_workers=1):        
+    def get_rare_raw_reactions_for_top_chems(self, max_workers=1): 
         hazards_chems = dict()
         with open(self.hazards_chems_fn) as f:
             for line in f:
                 hazard = json.loads(line)
-                hazards_chems[hazard['cid']] = hazard
-        
-        processed = self.__get_processed_entries(self.top_rare_raw_reactions_fn, 'cid')
+                hazards_chems[hazard['cid']] = hazard      
 
-        def is_top_chem(hazards):
-            for pic in hazards['pictograms']:
-                if pic in {'GHS01', 'GHS03', 'GHS06'}:
-                    return True
-            return False
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(self.top_rare_raw_reactions_fn, 'a') as f_out:
-            futures = []
-            for chem in self.chems:
-                cid = chem['cid']
-                if cid not in processed and cid in hazards_chems and is_top_chem(hazards_chems[cid]):
-                    futures.append(executor.submit(self.__fetch_raw_reactions, chem, "rare_rp"))
+        def criteria(chem): 
+            def is_top_chem(hazards):
+                for pic in hazards['pictograms']:
+                    if pic in {'GHS01', 'GHS03', 'GHS06'}:
+                        return True
+                return False
             
-            for future in as_completed(futures):
-                res = future.result()
-                if res is None:
-                    continue
-                f_out.write(json.dumps(res) + '\n')
-                f_out.flush()
-    
-
-    def get_uncommon_raw_reactions_for_wiki_chems_products_only(self, max_workers=1):        
-        processed = self.__get_processed_entries(self.products_wiki_raw_reactions_fn, 'cid')
-
-        staged_chems = [chem for chem in self.chems if 'wiki' in chem and chem['cid'] not in processed]
-        random.shuffle(staged_chems)
-        print(f"Staged {len(staged_chems)} compounds")
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(self.products_wiki_raw_reactions_fn, 'a') as f_out:
-            futures = []
-            for chem in staged_chems:
-                futures.append(executor.submit(self.__fetch_raw_reactions, chem, "documented_less_common_p"))
+            cid = chem['cid']
             
-            for future in as_completed(futures):
-                res = future.result()
-                if res is None:
-                    continue
-                f_out.write(json.dumps(res) + '\n')
-                f_out.flush()
+            return cid in hazards_chems and is_top_chem(hazards_chems[cid])
 
+
+        self.__get_raw_reactions(self.top_rare_raw_reactions_fn, max_workers, mode="rare_rp", criteria=criteria)
     
 
-    def __get_verdicts_bool_from_response(self, response: str):
-        verdicts = []
-        for line in response.split('\n'):
-            if 'invalid' in line.lower():
-                verdicts.append(False)
-            elif 'valid' in line.lower():
-                verdicts.append(True)
-        
-        return verdicts
+    def get_uncommon_raw_reactions_for_wiki_chems_products_only(self, max_workers=1):                
+        self.__get_raw_reactions(self.products_wiki_raw_reactions_fn, max_workers, mode="documented_less_common_p", criteria=lambda x: x['wiki'])
     
+
+    def get_uncommon_raw_reactions_for_annotated_chems_products_only(self, max_workers=1):                
+        self.__get_raw_reactions(self.products_annot_raw_reactions_fn, max_workers, mode="documented_less_common_p", criteria=lambda x: 'annotation' in x and not x['wiki'])
+
+    
+    def __extract_verdicts_from_response(self, response):
+        return ['invalid' not in verd.lower() and 'valid' in verd.lower() for verd in response.split('\n')]
+
 
     def __validate_raw_reactions(self, reactions, valid_cnt):
         try:
@@ -239,9 +211,6 @@ class ChemsLLMFetch(ChemsLLM):
 
             for try_i, model in enumerate(models_schedule):
 
-                def extract_verdicts_from_response(response):
-                    return ['invalid' not in verd.lower() and 'valid' in verd.lower() for verd in response.split('\n')]
-
                 valid_i = 0
                 mistakes_cnt = 0
                 mistakes_thr = 3
@@ -255,8 +224,8 @@ class ChemsLLMFetch(ChemsLLM):
                         {"role": "system", "content": ""},
                         {"role": "user", "content": f"{instruct_validate}\n{reactions_str}"}
                     ]
-                    response = self.__fetch_llm_answer(messages, model, reasoning_effort='low')
-                    verdicts = extract_verdicts_from_response(response)
+                    response = self.__fetch_llm_answer(messages, model)
+                    verdicts = self.__extract_verdicts_from_response(response)
                     if len(verdicts) != len(reactions):
                         if mistakes_cnt == mistakes_thr:
                             self.log(f"Falling to another model due to mistakes ({try_i+1}/{len(models_schedule)}) ('{model}')")
@@ -275,7 +244,7 @@ class ChemsLLMFetch(ChemsLLM):
                             react = reactions[i].copy()
                             reaction_str = react['reaction']
                             react['valid'] = confidences[i] > confidence_thr
-                            react['confidence'] = confidences[i]
+                            react['confidence'] = est_confidence
                             react['source'] = model
                             results.append(react)
                             finished_indices.add(i)
@@ -300,21 +269,32 @@ class ChemsLLMFetch(ChemsLLM):
         if raw_reactions_fn is None:
             raw_reactions_fn = self.raw_reactions_fn
 
+        def _get_reaction_id(react):
+            react_parsed, _ = self._parse_reaction_scheme(react['reaction'], balance=False)
+            if not react_parsed:
+                self.log_warn(f"Verdict file contains non-parsable reaction: '{react}'")
+                return None
+            else:
+                return react_parsed['rid']
+        
+        processed_rids = self.__get_processed_entries(self.raw_reactions_verdict_fn, key=_get_reaction_id)
+        
         entries = self._load_jsonl(raw_reactions_fn)
-        
-        processed = self.__get_processed_entries(self.raw_reactions_verdict_fn, 'reaction')
-        
         reactions = []
-
         for entry in entries:
             cid = entry['cid']
             reactions_curr = entry['reactions']
             for react in reactions_curr:
-                if react not in processed:
-                    if self._parse_reaction_str(react['reaction'])[0] is not None:
-                        reactions.append({'cid': cid, 'reaction': react})
+                react_parsed, _ = self._parse_reaction_scheme(react, balance=False)
+                if not react_parsed or (rid := react_parsed['rid']) in processed_rids:
+                    continue
+
+                reactions.append({'cid': cid, 'reaction': react})
+                processed_rids.add(rid)
+
         
         reactions_batch_size = 10
+        self.log(f"Submitted {len(reactions)} reactions for validation")
         with ThreadPoolExecutor(max_workers=max_workers) as executor, open(self.raw_reactions_verdict_fn, 'a') as f_out:
             futures = []
             i = 0
@@ -322,7 +302,7 @@ class ChemsLLMFetch(ChemsLLM):
                 futures.append(executor.submit(self.__validate_raw_reactions, reactions[i:i+reactions_batch_size], 9))
                 i += reactions_batch_size
             
-            for future in as_completed(futures):
+            for future in self._rich_track(as_completed(futures), "Validating reactions", total=len(futures)):
                 res = future.result()
                 if res:
                     for react in res:
@@ -504,9 +484,6 @@ class ChemsLLMFetch(ChemsLLM):
                     return [descriptions[i] for i in indices], [reactions[i] for i in indices]
 
                 descriptions, reactions = filter_descriptions_reactions(descriptions, reactions)
-                
-                def extract_verdicts_from_response(response):
-                    return ['invalid' not in verd.lower() and 'valid' in verd.lower() for verd in response.split('\n')]
 
                 valid_i = 0
                 mistakes_cnt = 0
@@ -525,7 +502,7 @@ class ChemsLLMFetch(ChemsLLM):
                         {"role": "user", "content": f"{instruct_validate}\n\n{formatted_descriptions_str}"}
                     ]
                     response = self.__fetch_llm_answer(messages, model)
-                    verdicts = extract_verdicts_from_response(response)
+                    verdicts = self.__extract_verdicts_from_response(response)
                     if len(verdicts) != len(descriptions):
                         if mistakes_cnt == mistakes_thr:
                             self.log("Returning early due to mistakes at validation phase")
@@ -598,71 +575,228 @@ class ChemsLLMFetch(ChemsLLM):
                     for entry in res:
                         f_out.write(json.dumps(entry) + '\n')
                     f_out.flush()
+    
+
+    def __fix_unbalanced_reactions(self, reactions):
+        try:
+            model = self.gpt_oss
+            instruct = \
+            "You will be given a list of unbalanced chemical reaction schemes. " \
+            "Each reaction is generally valid but contains an error that prevents it from being balanced. " \
+            "Your task is to correct each reaction so that it can be balanced. Write the corrected reactions, one per line. " \
+            "Do not specify balance coefficients. " \
+            "If you need to add any compounds to the reaction, use their full chemical names, not formulas. " \
+            "If a compound is already correctly placed, leave it as it is. Do not write anything other than the reaction schemes. " \
+            "If a particular reaction cannot be fixed for any reason, write strictly 'None' on that line."
+
+            reactions_formatted_str = '\n'.join([f"{i+1}. {self._get_reaction_as_str(react)}" for i, react in enumerate(reactions)])
+
+            def attempt_fix():
+                tries_num = 2
+                result = []
+                for try_i in range(tries_num):
+                    messages = [
+                        {"role": "system", "content": ""},
+                        {"role": "user", "content": f"{instruct}\n\n{reactions_formatted_str}"}
+                    ]
+                    
+                    response = self.__fetch_llm_answer(messages, model, reasoning_effort='minimal')
+                    #response = re.sub(r'^\s*\d+\.\s*', '', response)
+                    response = response.strip().split('\n')
+                    if len(response) != len(reactions):
+                        msg = f": {response[0][:100]}..." if len(response) == 1 else ""
+                        self.log_warn(f"Mistake {len(response)} != {len(reactions)}{msg}")
+                        continue
+
+                    fixed_reactions = list(map(lambda react: self._parse_reaction_scheme(react, balance=True)[0], response))
+                    for i, react in enumerate(fixed_reactions):
+                        if not react or not react['balanced']:
+                            continue
+
+                        result.append({'old_rid': reactions[i]['rid'], 'fix': react})
+                    self.log(f"Got {len(result)}")
+                    
+                    return result
+            
+            def get_intersection(*results):
+                if not results:
+                    return []
+
+                def key(entry):
+                    return (entry['old_rid'], entry['fix']['rid'])
+
+                intersection_keys = {key(entry) for entry in results[0]}
+
+                for res in results[1:]:
+                    intersection_keys &= {key(entry) for entry in res}
+                    if not intersection_keys:
+                        return []
+
+                return [entry for entry in results[0] if key(entry) in intersection_keys]
+            
+            result = get_intersection(*[attempt_fix() for _ in range(2)])
+
+            return result
+
+        except Exception as e:
+            self.log_err(f"Exception during fixing unbalanced reactions: {e}")
+        
+        return None
+    
+
+    def fix_unbalanced_reactions(self, max_workers=1):
+        processed = self.__get_processed_entries(self.reactions_parsed_fixed_fn, 'old_rid')
+
+        reactions = sorted(self._load_jsonl(self.reactions_parsed_fn), key=lambda r: r['complexity'])
+        reactions_staged = {react['rid']: react for react in reactions if not react['balanced'] and react['rid'] not in processed}
+
+        REACTIONS_BATCH_SIZE = 5
+        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(self.reactions_parsed_fixed_fn, 'a') as f:
+            run_i = 0
+            while len(reactions_staged) > 0:
+                run_i += 1
+                futures = set()
+                reactions_list = list(reactions_staged.values())
+                for i in range(0, len(reactions_list), REACTIONS_BATCH_SIZE):
+                    batch = reactions_list[i:i+REACTIONS_BATCH_SIZE]
+                    futures.add(executor.submit(self.__fix_unbalanced_reactions, batch))
+                
+                for future in self._rich_track(as_completed(futures),f"Iteration {run_i}", total=len(futures)):
+                    res = future.result()
+                    if not res:
+                        continue
+
+                    self.log(f"Lost {REACTIONS_BATCH_SIZE-len(res)}/{REACTIONS_BATCH_SIZE}; CTT: {self.completion_tokens_total}\n")
+                    for entry in res:
+                        f.write(json.dumps(entry) + '\n')
+                        reactions_staged.pop(entry['old_rid'])
+                    f.flush()
+    
+
+
+    def __get_reactions_thermo(self, reactions):
+        try:
+            if not reactions:
+                return None
+
+            instruct = (
+                "You will be given a list of chemical reaction schemes. "
+                f"Your task is to estimate the enthalpy and free energy of each reaction based on your chemical knowledge. "
+                "Assume standrd conditions. Provide both values in kcal/mole as plain integers, separated by a comma, one reaction per line. "
+                "Format: <enthalpy>, <free energy>\n"
+                "Do not include anything other than the estimates."
+            )
+
+            model = self.gpt_oss
+
+            reactions_formatted_str = '\n'.join([f"{i+1}. {self._get_reaction_as_str(react)}" for i, react in enumerate(reactions)])
+
+            tries_num = 2
+            results = []
+            for try_i in range(tries_num):
+                messages = [
+                    {"role": "system", "content": ""},
+                    {"role": "user", "content": f"{instruct}\n\n{reactions_formatted_str}"}
+                ]
+                
+                response = self.__fetch_llm_answer(messages, model)
+                response = response.strip().split('\n')
+                if len(response) == len(reactions):
+                    def is_float(value):
+                        try:
+                            float(value)
+                            return True
+                        except (TypeError, ValueError):
+                            return False
+
+                    for i, entry in enumerate(response):
+                        dH, dG = re.sub(r'\s+', '', entry).split(',')
+                        if is_float(dH) and is_float(dG):
+                            results.append({'rid': reactions[i]['rid'], 'estimates': {'dH': float(dH), 'dG': float(dG)}})
+                
+                    return results
+        
+        except Exception as e:
+            self.log_warn(f"Exception during fetching thermo values: {e}")
+        
+        return None
+    
+
+    def get_reactions_thermo(self, max_workers=1):
+        current_thermo = self._load_jsonl(self.reactions_thermo_llm_fn)
+
+        current_thermo_map = {x['rid']: x['estimates'] for x in current_thermo}
+
+        reactions = [
+            r for r in self._load_jsonl(self.reactions_parsed_fn)
+            if r['balanced']
+        ]
+
+        TARGET_ESTIMATES_NUM = 10
+        REACTIONS_BATCH_SIZE = 10
+
+        def save_results():
+            self.log(f"Writing results...")
+            result_thermo = [{'rid': rid, 'estimates': est} for rid, est in current_thermo_map.items()]
+
+            self._write_jsonl(result_thermo, self.reactions_thermo_llm_fn)
+
+        def missing_estimates():
+            return [r for r in reactions if len(current_thermo_map.get(r['rid'], [])) < TARGET_ESTIMATES_NUM]
+
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = set()
+
+            reactions_staged = missing_estimates()
+
+            iter_i = 0
+
+            try:
+                while reactions_staged:
+                    iter_i += 1
+
+                    futures.clear()
+
+                    for i in range(0, len(reactions_staged), REACTIONS_BATCH_SIZE):
+                        batch = reactions_staged[i:i+REACTIONS_BATCH_SIZE]
+                        futures.add(executor.submit(self.__get_reactions_thermo, batch))
+
+                    with self._rich_progress(transient=True) as progress:
+                        task = progress.add_task(f"Iteration {iter_i}", total=len(futures))
+                        while futures:
+                            done, futures = wait(futures, return_when=FIRST_COMPLETED)
+                            processed_cnt = 0
+                            for future in done:
+                                results = future.result()
+                                if not results:
+                                    continue
+
+                                for entry in results:
+                                    current_thermo_map.setdefault(entry['rid'], []).append(entry['estimates'])
+                                    processed_cnt += 1
+
+                            progress.update(task, advance=len(done))
+                            progress.refresh()
+                    
+                    reactions_staged = missing_estimates()
+                    save_results()
+    
+            finally:
+                save_results()
+                self.log(f"Done!")
+
+
 
 
 
 
 if __name__ == "__main__":
-    chemsllm = ChemsLLMFetch("data/", "chemistry")
+    chemsllm = ChemsLLMFetch("data/")
+    chemsllm.get_reactions_thermo(max_workers=30)
+    #chemsllm.validate_raw_reactions('data/raw_reactions/annotated_products_raw_reactions.jsonl', max_workers=30)
+    #chemsllm.get_uncommon_raw_reactions_for_annotated_chems_products_only(max_workers=20)
+    #chemsllm.get_uncommon_raw_reactions_for_wiki_chems_products_only(max_workers=30)
     #chemsllm.get_raw_reactions(max_workers=20)
-    #chemsllm.process_raw_reactions('raw_reactions.jsonl')
-    #chemsllm.deduplicate_raw_reactions()
-    #chemsllm.validate_raw_reactions(max_workers=20)
-    #chemsllm.fix_broken_raw_reactions(max_workers=1)
-    #print(chemsllm.find_all_unicode_chars_in_raw_reactions())
-    #chemsllm.parse_raw_llm_reactions()
-    #chemsllm.fetch_names_from_pubchem()
-    #chemsllm.organize_chems_file()
-    #chemsllm.balance_parsed_reactions()
-    #chemsllm.find_unbalancing_chems()
-    #chemsllm.get_uncommon_raw_reactions_for_wiki_chems(max_workers=20)
-    #chemsllm.validate_raw_reactions(raw_reactions_fn="data/top_rare_raw_reactions.jsonl", max_workers=20)
-    #chemsllm.generate_chems_structures_svg()
-    #chemsllm.get_rare_raw_reactions_for_top_chems(max_workers=20)
-    #chemsllm.generate_organic_marks_for_chems()
-    #chemsllm.generate_edges()
-    #chemsllm.filter_chems_with_invalid_smiles()
-    #chemsllm.generate_chems_fingerprints()
-    #chemsllm.merge_wiki_chems()
-    #chemsllm.make_chems_smiles_canonic()
-    #chemsllm.generate_chems_bertz_complexity()
-    #chemsllm.show_bertz_complexity_diff()
-    #chemsllm.parse_raw_ord_reactions('cleaned_ord.jsonl')
-    #chemsllm.fetch_smiles_from_pubchem()
-    #chemsllm.fetch_chems_cids_from_pubchem('cids.txt')
-    #chemsllm.merge_parsed_files("data/reactions_parsed/merged_reactions_parsed.jsonl", "data/reactions_parsed/reactions_parsed_ord.jsonl", "data/reactions_parsed/reactions_parsed.jsonl")
-    #chemsllm.balance_parsed_reactions()
-    #chemsllm.generate_edges()
-    #chemsllm.populate_db()
-    #chemsllm.deduplicate_chems_rebind_reactions()
-    #chemsllm.fix_details()
-    #chemsllm.fix_reactions()
-    #chemsllm.test()
-    #chemsllm.get_uncommon_raw_reactions_for_wiki_chems_products_only(max_workers=20)
-    #chemsllm.get_chems_descriptions(max_workers=20)
-    #chemsllm.get_reactions_descriptions(max_workers=20)
-    #chemsllm.validate_raw_reactions(raw_reactions_fn="data/wiki_products_raw_reactions.jsonl", max_workers=20)
-    #chemsllm.clean_data_populate_tables(rehash_required=True)
-    #chemsllm.extract_chems_cas_numbers()
-    #chemsllm.get_background_substances(20)
-    #chemsllm.get_commonnes_chems_sorting()
-    #chemsllm.filter_ord_reactions()
-    #chemsllm.extract_radicals_list('radicals.jsonl')
-    #chemsllm.clean_ord_reactions_from_radicals()
-    #chemsllm.filter_ord_reactions()
-    #chemsllm.fetch_elements()
-    #chemsllm.compute_reactions_thermo_xtb('reaction_enthalpies.jsonl')
-    #chemsllm.test()
-    #chemsllm.merge_details()
-    #chemsllm.merge_reactions()
-    #chemsllm.get_conflicting_synonyms('conflict.txt')
-    #chemsllm.map_crc_chems_to_cids()
-    #chemsllm.fetch_names_from_pubchem('data/crc_unmapped_names.txt')
-    #chemsllm.get_commonnes_chems_sorting()
-    #chemsllm.extract_pubchem_dump_to_chems('pubchem.json', override=True)
-    #chemsllm.get_chems_cids('cids.txt')
-    #chemsllm.resolve_conflicting_synonyms()
-    #chemsllm.test()
-
     
 
