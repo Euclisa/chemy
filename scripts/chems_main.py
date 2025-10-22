@@ -84,4 +84,8 @@ class ChemsMain(ChemsLLMParse, ChemsOrdParse, ChemsSql):
 
 if __name__ == "__main__":
     chems = ChemsMain('data/')
+    chems.parse_raw_ord_reactions('cleaned_ord.jsonl')
+    chems.parse_raw_llm_reactions()
     chems.merge_reactions()
+    chems.merge_details()
+    chems.generate_edges()

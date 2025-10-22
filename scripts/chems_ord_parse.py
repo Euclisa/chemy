@@ -319,6 +319,7 @@ class ChemsOrdParse(ChemsParseReactions):
 
     def parse_raw_ord_reactions(self, ord_reactions_fn, balance=True):
         unmapped_smiles = dict()
+        smiles_name_map = dict()
         mapped_count = 0
         overall_count = 0
         processed_rids = set()
@@ -326,7 +327,7 @@ class ChemsOrdParse(ChemsParseReactions):
         parsed_details_list = []
         with open(ord_reactions_fn) as f_in:
             total = self._count_file_lines(ord_reactions_fn)
-            for line in self._rich_track(f_in, "Parsing...", total=total):
+            for line in self._rich_track(f_in, "Parsing ORD reactions", total=total):
                 reaction = json.loads(line)
                 parse_success = True
 
@@ -343,9 +344,10 @@ class ChemsOrdParse(ChemsParseReactions):
                         if smiles in self.smiles_cid_map:
                             cid = self.smiles_cid_map[smiles]
                         else:
-                            if smiles not in unmapped_smiles:
-                                unmapped_smiles[smiles] = 0
-                            unmapped_smiles[smiles] += 1
+                            unmapped_smiles[smiles] = unmapped_smiles.setdefault(smiles, 0) + 1
+                            if smiles_name_map.get(smiles) is None:
+                                smiles_name_map[smiles] = substance.get('name', None)
+
                             parse_success = False
                             return None
 
@@ -367,19 +369,15 @@ class ChemsOrdParse(ChemsParseReactions):
                 
                 parsed_details = dict()
                 
+                parsed_details['solvents'] = []
                 if reaction['solvents']:
-                    parsed_details['solvents'] = []
                     for solvent in reaction['solvents']:
                         process_substance(solvent, parsed_details['solvents'])
-                else:
-                    parsed_details['solvents'] = None
                 
+                parsed_details['catalysts'] = []
                 if reaction['catalysts']:
-                    parsed_details['catalysts'] = []
-                    for solvent in reaction['catalysts']:
-                        process_substance(solvent, parsed_details['catalysts'])
-                else:
-                    parsed_details['catalysts'] = None
+                    for catalyst in reaction['catalysts']:
+                        process_substance(catalyst, parsed_details['catalysts'])
                 
                 parsed_details['provenance'] = reaction['provenance']
                 parsed_details["description"] = reaction["description"]
@@ -434,10 +432,9 @@ class ChemsOrdParse(ChemsParseReactions):
         self._write_jsonl(parsed_reactions_list, self.reactions_parsed_ord_fn)
         self._write_jsonl(parsed_details_list, self.reactions_details_ord_fn)
         
-        unmapped_smiles_list = [{'smiles': x, 'count': unmapped_smiles[x]} for x in unmapped_smiles]
+        unmapped_smiles_list = [{'smiles': x, 'name': smiles_name_map[x],'count': unmapped_smiles[x]} for x in unmapped_smiles]
         self._write_jsonl(unmapped_smiles_list, self.unmapped_smiles_fn)
         
-        self.log()
         self.log(f"Unmapped smiles: {len(unmapped_smiles)}")
         self.log(f"Mapped {mapped_count} reactions out of {overall_count}")
 

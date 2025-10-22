@@ -3,7 +3,7 @@ import re
 import shutil
 import os
 
-from rdkit import Chem
+from rdkit import Chem, RDLogger
 from rdkit.Chem import AllChem, GraphDescriptors, inchi
 
 from functools import cached_property
@@ -12,6 +12,10 @@ import inspect
 from rich.progress import track, Progress
 
 from chems_db import ChemsDB
+
+
+# Disable all RDKit warnings and info messages
+RDLogger.DisableLog('rdApp.*')
 
 
 class ChemsParsePubchem(ChemsDB):
