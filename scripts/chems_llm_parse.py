@@ -22,8 +22,12 @@ class ChemsLLMParse(ChemsParseReactions):
         self.products_wiki_raw_reactions_fn = os.path.join(self.data_dir, 'raw_reactions', 'wiki_products_raw_reactions.jsonl')
         self.products_annot_raw_reactions_fn = os.path.join(self.data_dir, 'raw_reactions', 'annotated_products_raw_reactions.jsonl')
 
+        self.reactions_details_llm_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details_llm.jsonl')
+        self.reactions_descriptions_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_descriptions.jsonl')
+
         self.reactions_thermo_llm_fn = os.path.join(self.data_dir, 'thermo', 'llm', 'reactions_thermo_llm.jsonl')
 
+        self.chems_descriptions_fn = os.path.join(self.data_dir, 'chems', 'chems_descriptions.jsonl')
         self.chems_hazard_categories_llm_fn = os.path.join(self.data_dir, 'chems', 'chems_hazard_categories_llm.jsonl')
         self.chems_nfpa_llm_fn = os.path.join(self.data_dir, 'chems', 'chems_nfpa_llm.jsonl')
 

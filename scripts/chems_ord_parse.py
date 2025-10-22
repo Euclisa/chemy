@@ -21,8 +21,11 @@ class ChemsOrdParse(ChemsParseReactions):
         super().__init__(chems_data)
 
         self.ord_data = ord_data
-
         self.ord_source = "ord"
+
+        self.reactions_details_ord_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details_ord.jsonl')
+
+        self._file_sorting_prefs[self.reactions_details_ord_fn] = 'rid'
 
         self.sources_priority[self.ord_source] = 10
     

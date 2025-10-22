@@ -18,9 +18,6 @@ class ChemsParseReactions(ChemsParsePubchem):
         self.reactions_parsed_fixed_fn = os.path.join(self.data_dir, 'reactions_parsed', 'reactions_parsed_fixed.jsonl')
 
         self.reactions_details_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details.jsonl')
-        self.reactions_details_ord_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details_ord.jsonl')
-        self.reactions_details_llm_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details_llm.jsonl')
-        self.reactions_descriptions_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_descriptions.jsonl')
 
         self.unmapped_names_fn = os.path.join(self.data_dir, "unmapped_names.jsonl")
         self.chem_names_blacklisted_fn = os.path.join(self.data_dir, "unmapped_names_blacklisted.txt")
@@ -32,9 +29,6 @@ class ChemsParseReactions(ChemsParsePubchem):
         self._file_sorting_prefs[self.reactions_parsed_ord_fn] = 'rid'
 
         self._file_sorting_prefs[self.reactions_details_fn] = 'rid'
-        self._file_sorting_prefs[self.reactions_details_ord_fn] = 'rid'
-        self._file_sorting_prefs[self.reactions_details_llm_fn] = 'rid'
-        self._file_sorting_prefs[self.reactions_descriptions_fn] = 'rid'
 
         self._file_sorting_prefs[self.unmapped_names_fn] = ('count', True)
         self._file_sorting_prefs[self.unmapped_smiles_fn] = ('count', True)

@@ -19,7 +19,6 @@ class ChemsParsePubchem(ChemsDB):
     def __init__(self, data_dir):
         super().__init__(data_dir)
 
-        self.chems_descriptions_fn = os.path.join(self.data_dir, 'chems', 'chems_descriptions.jsonl')
         self.chems_fn = os.path.join(self.data_dir, 'chems', "chems.jsonl")
         self.chems_categories_fn = os.path.join(self.data_dir, 'chems', "chems_categories.jsonl")
         self.wiki_chems_fn = os.path.join(self.data_dir, 'chems', "wiki_chems.jsonl")
@@ -33,7 +32,6 @@ class ChemsParsePubchem(ChemsDB):
         self.cids_blacklist_fn = os.path.join(self.data_dir, 'misc', 'cids_blacklist.jsonl')
         self.cids_filtered_synonyms_fn = os.path.join(self.data_dir, 'misc', 'cids_filtered_synonyms.jsonl')
 
-        self._file_sorting_prefs[self.chems_descriptions_fn] = 'cid'
         self._file_sorting_prefs[self.chems_fn] = 'complexity'
         self._file_sorting_prefs[self.chems_categories_fn] = 'cid'
         self._file_sorting_prefs[self.wiki_chems_fn] = 'cid'
