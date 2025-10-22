@@ -11,7 +11,7 @@ class ChemsLLMParse(ChemsParseReactions):
 
         self.gpt_oss = "openai/gpt-oss-120b"
         self.qwen = "qwen/qwen3-235b-a22b"
-        self.grok = "x-ai/grok-3-mini"
+        self.grok = "x-ai/grok-4-fast"
         self.gemini = "google/gemini-2.5-flash-lite"
         self.deepseek = "deepseek/deepseek-v3.2-exp"
 
@@ -23,6 +23,9 @@ class ChemsLLMParse(ChemsParseReactions):
         self.products_annot_raw_reactions_fn = os.path.join(self.data_dir, 'raw_reactions', 'annotated_products_raw_reactions.jsonl')
 
         self.reactions_thermo_llm_fn = os.path.join(self.data_dir, 'thermo', 'llm', 'reactions_thermo_llm.jsonl')
+
+        self.chems_hazard_categories_llm_fn = os.path.join(self.data_dir, 'chems', 'chems_hazard_categories_llm.jsonl')
+        self.chems_nfpa_llm_fn = os.path.join(self.data_dir, 'chems', 'chems_nfpa_llm.jsonl')
 
         self._file_sorting_prefs[self.reactions_thermo_llm_fn] = 'rid'
 

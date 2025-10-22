@@ -143,3 +143,21 @@ class ChemsParseReactions(ChemsParsePubchem):
             norm_names.update(entry['norm_name'] for entry in react['reagents']+react['products'])
         
         return norm_names
+
+
+    def _convert_details_to_canonic(self, details: dict):
+        required_fields = ['rid', 'source']
+        for field in required_fields:
+            if field not in details:
+                raise Exception(f"Field '{field}' must be present in reaction details entry")
+        
+        details.setdefault('confidence', None)
+        details.setdefault('description', None)
+        details.setdefault('catalysts', [])
+        details.setdefault('solvents', [])
+        
+        if 'provenance' not in details or details['provenance'] is None:
+            details['provenance'] = {'doi': None, 'patent': None}
+        
+        return details
+

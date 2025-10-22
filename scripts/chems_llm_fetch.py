@@ -6,6 +6,8 @@ import json
 import re
 import random
 
+from contextlib import contextmanager
+
 from chems_llm_parse import ChemsLLMParse
 
 
@@ -22,9 +24,23 @@ class ChemsLLMFetch(ChemsLLMParse):
         self.completion_tokens_total = 0
         self.input_tokens_total = 0
         self.tokens_total_lock = threading.Lock()
+        self._max_ctt = None
+    
+
+    @contextmanager
+    def restrict_ctt(self, max_ctt):
+        self._max_ctt = max_ctt
+
+        try:
+            yield
+        finally:
+            self._max_ctt = None
 
     
     def __fetch_llm_answer(self, messages, model, reasoning_effort="medium", max_completion_tokens=10000):
+        if self._max_ctt is not None and self.completion_tokens_total >= self._max_ctt:
+            raise Exception("Reached limit of max completion tokens")
+
         completion = self.client.chat.completions.create(
             model=model,
             messages=messages,
@@ -409,27 +425,24 @@ class ChemsLLMFetch(ChemsLLMParse):
 
     def get_chems_descriptions(self, max_workers=1):
         chems_power = dict()
-        for chem in self.chems:
-            chems_power[chem['cid']] = 0
-
         with open(self.reactions_parsed_fn) as f:
             for line in f:
                 reaction = json.loads(line)
                 all_cids = [x['cid'] for x in reaction['reagents']] + [x['cid'] for x in reaction['products']]
                 for cid in all_cids:
-                    chems_power[cid] += 1
+                    chems_power[cid] = chems_power.setdefault(cid, 0) + 1
         
-        self.chems.sort(key=lambda x: chems_power[x['cid']], reverse=True)
-
         processed = self.__get_processed_entries(self.chems_descriptions_fn, 'cid')
+        
+        staged_chems = sorted([chem for chem in self.chems if chem['cid'] not in processed], key=lambda x: chems_power.get(x['cid'], 0), reverse=True)
+        self.log(f"Submitted {len(staged_chems)} compounds for description generation")
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor, open(self.chems_descriptions_fn, 'a') as f_out:
             futures = []
-            for chem in self.chems:
-                if chem['cid'] not in processed and 'wiki' in chem:
-                    futures.append(executor.submit(self.__get_chem_description, chem, 6))
+            for chem in staged_chems:
+                futures.append(executor.submit(self.__get_chem_description, chem, 6))
             
-            for future in as_completed(futures):
+            for future in self._rich_track(as_completed(futures), "Generating compounds descriptions", total=len(futures)):
                 res = future.result()
                 if res:
                     f_out.write(json.dumps(res) + '\n')
@@ -476,7 +489,7 @@ class ChemsLLMFetch(ChemsLLMParse):
                 response = self.__fetch_llm_answer(messages, model)
                 descriptions = extract_descriptions_from_response(response)
                 if len(descriptions) != len(reactions):
-                    self.log(f"Failed to get descriptions ({len(descriptions)} != {len(reactions)}) ('{model}') ({try_i+1}/{len(models_schedule)})")
+                    self.log_warn(f"Failed to get descriptions ({len(descriptions)} != {len(reactions)}) ('{model}') ({try_i+1}/{len(models_schedule)})")
                     continue
 
                 def filter_descriptions_reactions(descriptions, reactions):
@@ -518,7 +531,7 @@ class ChemsLLMFetch(ChemsLLMParse):
                         est_confidence = (confidences[i] + max_confidence) / 2
                         if confidences[i] >= confidence_thr:
                             reaction_str = reactions[i]['reaction']
-                            self.log(f"Generated description for '{reaction_str}'; confidence: {est_confidence}")
+                            self.log(f"Generated description for '{reaction_str}'; confidence: {est_confidence}; CTT: {self.completion_tokens_total}")
                             results.append({'rid': reactions[i]['rid'], 'description': descriptions[i], 'confidence': est_confidence, 'source': model})
                             finished_indices.add(i)
                         elif max_confidence < confidence_thr:
@@ -533,23 +546,20 @@ class ChemsLLMFetch(ChemsLLMParse):
 
         
         except Exception as e:
-            self.log(f"Exception during reactions description generation: {e}")
+            self.log_warn(f"Exception during reactions description generation: {e}")
         
         return None
 
 
     def get_reactions_descriptions(self, max_workers=1):
         chems_power = dict()
-        for chem in self.chems:
-            chems_power[chem['cid']] = 0
-
         reactions = []
-        with open(self.reactions_parsed_fn) as f:
+        with open(self.reactions_parsed_llm_fn) as f:
             for line in f:
                 reaction = json.loads(line)
                 all_cids = [x['cid'] for x in reaction['reagents']] + [x['cid'] for x in reaction['products']]
                 for cid in all_cids:
-                    chems_power[cid] += 1
+                    chems_power[cid] = chems_power.setdefault(cid, 0) + 1
                 reactions.append(reaction)
 
         reactions_power = dict()
@@ -557,22 +567,25 @@ class ChemsLLMFetch(ChemsLLMParse):
             all_cids = [x['cid'] for x in reaction['reagents']] + [x['cid'] for x in reaction['products']]
             reactions_power[react['rid']] = sum(chems_power[x] for x in all_cids) / len(all_cids)
         
-        processed = self.__get_processed_entries(self.reactions_descriptions_fn, 'rid')
-        reactions = list(filter(lambda x: x['rid'] not in processed and x['source'] != 'ord', reactions))
+        processed = self.__get_processed_entries(self.reactions_details_llm_fn, 'rid')
+        reactions = list(filter(lambda x: x['rid'] not in processed, reactions))
         reactions.sort(key=lambda x: reactions_power[x['rid']], reverse=True)
 
+        self.log(f"Submitted {len(reactions)} reactions for descriptions generation")
+
         reactions_batch_size = 6
-        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(self.reactions_descriptions_fn, 'a') as f_out:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(self.reactions_details_llm_fn, 'a') as f_out:
             futures = []
             for i in range(0, len(reactions), reactions_batch_size):
                 reactions_arg = [{'reaction': self._get_reaction_as_str(x), 'rid': x['rid']} for x in reactions[i:i + reactions_batch_size]]
                 futures.append(executor.submit(self.__get_reactions_description, reactions_arg, 6))
             
-            for future in as_completed(futures):
+            for future in self._rich_track(as_completed(futures), "Generating reactions descriptions", total=len(futures)):
                 res = future.result()
                 if res:
-                    self.log(f"\nLost {reactions_batch_size-len(res)}/{reactions_batch_size}; CTT: {self.completion_tokens_total}\n")
+                    #self.log(f"\Got {len(res)} descriptions; CTT: {self.completion_tokens_total}\n")
                     for entry in res:
+                        entry = self._convert_details_to_canonic(entry)
                         f_out.write(json.dumps(entry) + '\n')
                     f_out.flush()
     
@@ -785,6 +798,228 @@ class ChemsLLMFetch(ChemsLLMParse):
             finally:
                 save_results()
                 self.log(f"Done!")
+    
+
+    def __get_chems_hazards_categories(self, chems):
+        try:
+            if not chems:
+                return None
+
+            # Define categories once
+            CATEGORIES = {'explosive', 'acute_toxic', 'flammable', 'oxidizer', 
+                        'corrosive', 'serious_health_hazard', 'environment_hazard'}
+
+            categories_str = ', '.join(CATEGORIES)
+            instruct = (
+                "You will be given a list of chemical compounds. "
+                "For each compound, assign one or more categories from the following list using your common knowledge: "
+                f"{categories_str}.\n"
+                "Write the categories exactly as they appear in the list, separated by commas. "
+                "Each compound's categories should appear on a separate line in the same order as the input compounds. "
+                "If a compound does not fit any category, write 'None' on its corresponding line. "
+                "Do not include any additional text or explanation."
+            )
+
+            # Prepare input string for the model
+            chems_formatted_str = '\n'.join(chem['cmpdname'] for chem in chems)
+            model = self.gpt_oss
+
+            runs_num = 6
+            occurrence_thr_ratio = 0.49
+            mistakes_thr = 2
+            mistakes_cnt = 0
+            run_i = 0
+
+            # Initialize counts for each chemical
+            categories_count = [dict() for _ in chems]
+
+            while run_i < runs_num:
+                messages = [
+                    {"role": "system", "content": ""},
+                    {"role": "user", "content": f"{instruct}\n\n{chems_formatted_str}"}
+                ]
+
+                response = self.__fetch_llm_answer(messages, model)
+                response = response.strip().split('\n')
+
+                if len(response) == len(chems):
+                    valid_run = True
+                    for i, entry in enumerate(response):
+                        # Normalize categories: lowercase, remove extra spaces
+                        cats = [c.lower() for c in re.sub(r'\s+', '', entry).split(',')]
+                        if any(c not in CATEGORIES and c != 'none' for c in cats):
+                            valid_run = False
+                            break
+
+                        # Count occurrences
+                        for c in cats:
+                            if c != 'none':
+                                categories_count[i][c] = categories_count[i].get(c, 0) + 1
+
+                    if valid_run:
+                        run_i += 1
+                        continue
+
+                # Count a mistake if the response was invalid
+                mistakes_cnt += 1
+                if mistakes_cnt >= mistakes_thr:
+                    self.log_warn("Failed to generate categories after multiple attempts")
+                    return None
+
+            # Determine final categories based on occurrence threshold
+            occurrence_thr = round(runs_num * occurrence_thr_ratio)
+            cid_cats_map = {}
+            for i, chem in enumerate(chems):
+                final_cats = [cat for cat, count in categories_count[i].items() if count >= occurrence_thr]
+                if final_cats:
+                    cid_cats_map[chem['cid']] = final_cats
+
+                    name = chem['cmpdname']
+                    cats_str = ', '.join(final_cats)
+                    self.log(f'Got categories for "{name}": {cats_str}; CTT: {self.completion_tokens_total}')
+
+            # Prepare final results
+            results = [{'cid': cid, 'categories': cats if cats else None, 'source': model} for cid, cats in cid_cats_map.items()]
+
+            return results
+
+        except Exception as e:
+            self.log_warn(f"Exception during fetching hazard categories: {e}")
+            return None
+    
+
+
+    def get_chems_hazards_categories(self, max_workers=1):
+        processed = self.__get_processed_entries(self.chems_hazard_categories_llm_fn, 'cid')
+
+
+        CHEMS_BATCH_SIZE = 10
+
+        chems_staged = list(filter(lambda chem: chem['cid'] not in processed, self.chems))
+        self.log(f"Submitted {len(chems_staged)} compounds for hazard categories generation")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(self.chems_hazard_categories_llm_fn, 'a') as f_out:
+            futures = []
+            for i in range(0, len(chems_staged), CHEMS_BATCH_SIZE):
+                batch = chems_staged[i:i+CHEMS_BATCH_SIZE]
+                futures.append(executor.submit(self.__get_chems_hazards_categories, batch))
+            
+            for future in self._rich_track(as_completed(futures), "Generating hazard categories", total=len(futures)):
+                res = future.result()
+                if res is None:
+                    continue
+                for entry in res:
+                    f_out.write(json.dumps(entry) + '\n')
+                f_out.flush()
+
+    
+
+    def __get_chems_nfpa_ratings(self, chems):
+        try:
+            if not chems:
+                return None
+
+            instruct = (
+                "You will be given a list of chemical compounds. "
+                "For each compound, assign NFPA ratings based on your common knowledge. "
+                "Provide the result in the format: <health>,<flammability>,<stability>, with three comma-separated integers from 0 to 4. "
+                "Each compound's ratings should appear on a separate line, in the same order as the input compounds. "
+                "Do not include any additional text or explanation."
+            )
+
+            # Prepare input string for the model
+            chems_formatted_str = '\n'.join(chem['cmpdname'] for chem in chems)
+            models_schedule = [self.grok]
+
+            runs_num = 5
+            mistakes_thr = 2
+            mistakes_cnt = 0
+            run_i = 0
+            model_i = 0
+
+            # Initialize cumulative ratings for averaging
+            ratings = [{'health': 0.0, 'flammability': 0.0, 'stability': 0.0} for _ in chems]
+
+            while run_i < runs_num:
+                model = models_schedule[model_i]
+                messages = [
+                    {"role": "system", "content": ""},
+                    {"role": "user", "content": f"{instruct}\n\n{chems_formatted_str}"}
+                ]
+
+                response = self.__fetch_llm_answer(messages, model)
+                response = response.strip().split('\n')
+
+                if len(response) == len(chems):
+                    valid_run = True
+                    for i, entry in enumerate(response):
+                        try:
+                            # Remove spaces, split, and convert to float for averaging
+                            entry_values = list(map(float, re.sub(r'\s+', '', entry).split(',')))
+                            if len(entry_values) != 3 or any(rate < 0 or rate > 4 for rate in entry_values):
+                                valid_run = False
+                                break
+                            h, f, s = entry_values
+                            ratings[i]['health'] += h
+                            ratings[i]['flammability'] += f
+                            ratings[i]['stability'] += s
+                        except Exception:
+                            valid_run = False
+                            break
+
+                    if valid_run:
+                        run_i += 1
+                        continue
+
+                # Count a mistake if the response was invalid
+                mistakes_cnt += 1
+                if mistakes_cnt >= mistakes_thr:
+                    model_i += 1
+                    if model_i == len(models_schedule):
+                        self.log_warn("Failed to generate NFPA ratings after multiple attempts")
+                        return None
+                    self.log(f"Falling to the next model: '{models_schedule[model_i]}'")
+                    mistakes_cnt = 0
+
+            # Compute averages
+            for r in ratings:
+                r['health'] /= runs_num
+                r['flammability'] /= runs_num
+                r['stability'] /= runs_num
+
+            # Prepare final results
+            results = []
+            for i, chem in enumerate(chems):
+                results.append({'cid': chem['cid'], 'nfpa': ratings[i], 'source': models_schedule[model_i]})
+                self.log(f'Got NFPA for "{chem["cmpdname"]}": {ratings[i]}; CTT: {self.completion_tokens_total}')
+
+            return results
+
+        except Exception as e:
+            self.log_warn(f"Exception during fetching NFPA ratings: {e}")
+            return None
+    
+
+    def get_chems_nfpa_ratings(self, max_workers=1):
+        processed = self.__get_processed_entries(self.chems_nfpa_llm_fn, 'cid')
+
+        CHEMS_BATCH_SIZE = 10
+
+        chems_staged = list(filter(lambda chem: chem['cid'] not in processed, self.chems))
+        self.log(f"Submitted {len(chems_staged)} compounds for hazard categories generation")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(self.chems_nfpa_llm_fn, 'a') as f_out:
+            futures = []
+            for i in range(0, len(chems_staged), CHEMS_BATCH_SIZE):
+                batch = chems_staged[i:i+CHEMS_BATCH_SIZE]
+                futures.append(executor.submit(self.__get_chems_nfpa_ratings, batch))
+            
+            for future in self._rich_track(as_completed(futures), "Generating NFPA ratings", total=len(futures)):
+                res = future.result()
+                if res is None:
+                    continue
+                for entry in res:
+                    f_out.write(json.dumps(entry) + '\n')
+                f_out.flush()
+
 
 
 
@@ -793,10 +1028,12 @@ class ChemsLLMFetch(ChemsLLMParse):
 
 if __name__ == "__main__":
     chemsllm = ChemsLLMFetch("data/")
-    chemsllm.get_reactions_thermo(max_workers=30)
+    #chemsllm.get_reactions_thermo(max_workers=30)
     #chemsllm.validate_raw_reactions('data/raw_reactions/annotated_products_raw_reactions.jsonl', max_workers=30)
     #chemsllm.get_uncommon_raw_reactions_for_annotated_chems_products_only(max_workers=20)
     #chemsllm.get_uncommon_raw_reactions_for_wiki_chems_products_only(max_workers=30)
-    #chemsllm.get_raw_reactions(max_workers=20)
+    #chemsllm.get_reactions_descriptions(max_workers=20)
+    #chemsllm.get_chems_nfpa_ratings(max_workers=20)
+    chemsllm.get_chems_descriptions(max_workers=30)
     
 
