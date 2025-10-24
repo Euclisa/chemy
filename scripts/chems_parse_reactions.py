@@ -50,10 +50,20 @@ class ChemsParseReactions(ChemsParsePubchem):
         return f"{reagents_str} -> {products_str}"
 
 
+    def _remove_reaction_balance_data(self, reaction):
+        if 'balanced' in reaction:
+            reaction.pop('balanced')
+
+        for entry in reaction['reagents']+reaction['products']:
+            if 'coeff' in entry:
+                entry.pop('coeff')
+
     def _balance_reaction(self, reaction):
         check_rid = self._get_reaction_hash(reaction)
         if reaction['rid'] != check_rid:
             raise Exception(f"Bad RID for reaction '{reaction['rid']}'")
+        
+        self._remove_reaction_balance_data(reaction)
 
         reagents = [self.cid_mf_map[x['cid']] for x in reaction['reagents']]
         products = [self.cid_mf_map[x['cid']] for x in reaction['products']]
@@ -89,7 +99,7 @@ class ChemsParseReactions(ChemsParsePubchem):
         reactions = self._load_jsonl(reactions_parsed_fn)
         
         balanced_cnt = 0
-        for react in reactions:
+        for react in self._rich_track(reactions, "Balancing parsed reactions"):
             self._balance_reaction(react)
             balanced_cnt += react['balanced']
         
@@ -155,3 +165,8 @@ class ChemsParseReactions(ChemsParsePubchem):
         
         return details
 
+
+
+if __name__ == "__main__":
+    chems_parse = ChemsParseReactions('data/')
+    chems_parse.balance_parsed_reactions()
