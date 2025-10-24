@@ -67,7 +67,7 @@ class ChemsParseReactions(ChemsParsePubchem):
         all_coeffs = list(reagents_coeffs.values()) + list(products_coeffs.values())
         all_coeffs = [int(x) for x in all_coeffs]
         max_coeff = max(all_coeffs)
-        if max_coeff > 30:
+        if max_coeff > 15:
             reaction['balanced'] = False
             return
 

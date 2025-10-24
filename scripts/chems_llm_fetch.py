@@ -69,7 +69,7 @@ class ChemsLLMFetch(ChemsLLMParse):
         return completion.choices[0].message.content
     
 
-    def __fetch_llm_answer_str(self, message: str, model: str, reasoning_effort="medium", max_completion_tokens=10000):
+    def _fetch_llm_answer_str(self, message: str, model: str, reasoning_effort="medium", max_completion_tokens=10000):
         messages = self.__create_messages_block(message)
         return self.__fetch_llm_answer(messages, model, reasoning_effort=reasoning_effort, max_completion_tokens=max_completion_tokens)
 
@@ -90,7 +90,7 @@ class ChemsLLMFetch(ChemsLLMParse):
         return reactions
     
 
-    def __get_future_result(self, future, executor):
+    def _get_future_result(self, future, executor):
         try:
             result = future.result()
         except self.CompletionTokensLimitReached:
@@ -115,7 +115,7 @@ class ChemsLLMFetch(ChemsLLMParse):
             ]
 
             for future in self._rich_track(as_completed(futures), description, total=len(futures)):
-                res = self.__get_future_result(future, executor)
+                res = self._get_future_result(future, executor)
                 if res is None:
                     continue
                 
@@ -274,7 +274,7 @@ class ChemsLLMFetch(ChemsLLMParse):
             results = []
             while valid_i < valid_cnt and len(reactions) > 0:
                 reactions_str = '\n'.join([f"{i+1}. {react['reaction']}" for i, react in enumerate(reactions)])
-                response = self.__fetch_llm_answer_str(f"{instruct_validate}\n{reactions_str}", model)
+                response = self._fetch_llm_answer_str(f"{instruct_validate}\n{reactions_str}", model)
                 verdicts = self.__extract_verdicts_from_response(response)
                 if len(verdicts) != len(reactions):
                     if mistakes_cnt == mistakes_thr:
@@ -378,7 +378,7 @@ class ChemsLLMFetch(ChemsLLMParse):
         synonyms = ', '.join(list(map(lambda x: f'"{x}"', chem['cmpdsynonym'][:max_syns])))
         models_schedule = [self.gpt_oss, self.gpt_oss, self.qwen, self.qwen]
         for try_i, model in enumerate(models_schedule):
-            description = self.__fetch_llm_answer_str(f"{synonyms}\n\n{instruct}", model)
+            description = self._fetch_llm_answer_str(f"{synonyms}\n\n{instruct}", model)
             
             if len(description) < 20:
                 self.log_warn(f"Failed to generate description for {chem_name} on try {try_i+1}/{len(models_schedule)} ('{model}')")
@@ -390,7 +390,7 @@ class ChemsLLMFetch(ChemsLLMParse):
 
                 confidence = 0
                 for valid_i in range(valid_cnt):
-                    verdict = self.__fetch_llm_answer_str(f"{instruct_validate}\n\n{descr}", model)
+                    verdict = self._fetch_llm_answer_str(f"{instruct_validate}\n\n{descr}", model)
                     if self.__str_verdict_to_bool(verdict):
                         confidence += 1 / valid_cnt
 
@@ -409,7 +409,7 @@ class ChemsLLMFetch(ChemsLLMParse):
                 self.log(f"('{model}') Generated description for {chem_name} of length {len(description)}. confidence: {confidence}; CTT: {self.completion_tokens_total}")
                 return {'cid': chem['cid'], 'description': description, 'confidence': confidence, 'source': model}
 
-            description = self.__fetch_llm_answer_str(f"{instruct_fix}\n\n{description}", model)
+            description = self._fetch_llm_answer_str(f"{instruct_fix}\n\n{description}", model)
             confidence = validate_description(description, confidence_thr)
             if confidence >= confidence_thr:
                 self.log(f"('{model}') Generated description for {chem_name} of length {len(description)} after fixing. confidence: {confidence}; CTT: {self.completion_tokens_total}")
@@ -505,7 +505,7 @@ class ChemsLLMFetch(ChemsLLMParse):
                     formatted_descriptions_str.append(f'{i+1}. Scheme: "{react}"\nDescription: "{descriptions[i]}"')
                 formatted_descriptions_str = '\n\n'.join(formatted_descriptions_str)
 
-                response = self.__fetch_llm_answer_str(f"{instruct_validate}\n\n{formatted_descriptions_str}", model)
+                response = self._fetch_llm_answer_str(f"{instruct_validate}\n\n{formatted_descriptions_str}", model)
                 verdicts = self.__extract_verdicts_from_response(response)
                 if len(verdicts) != len(descriptions):
                     if mistakes_cnt == mistakes_thr:
@@ -591,7 +591,7 @@ class ChemsLLMFetch(ChemsLLMParse):
             tries_num = 2
             result = []
             for try_i in range(tries_num):
-                response = self.__fetch_llm_answer_str(f"{instruct}\n\n{reactions_formatted_str}", model)
+                response = self._fetch_llm_answer_str(f"{instruct}\n\n{reactions_formatted_str}", model)
                 response = response.strip().split('\n')
                 if len(response) != len(reactions):
                     msg = f": {response[0][:100]}..." if len(response) == 1 else ""
@@ -637,107 +637,6 @@ class ChemsLLMFetch(ChemsLLMParse):
         REACTIONS_BATCH_SIZE = 5
         self.__submit_entries_to_llm(self.reactions_parsed_fixed_fn, reactions_staged, max_workers, self.__fix_unbalanced_reactions,
                                      batch_size=REACTIONS_BATCH_SIZE, description="Unbalanced reactions fix")
-
-
-    def __get_reactions_thermo(self, reactions):
-        if not reactions:
-            return None
-
-        instruct = (
-            "You will be given a list of chemical reaction schemes. "
-            f"Your task is to estimate the enthalpy and free energy of each reaction based on your chemical knowledge. "
-            "Assume standrd conditions. Provide both values in kcal/mole as plain integers, separated by a comma, one reaction per line. "
-            "Format: <enthalpy>, <free energy>\n"
-            "Do not include anything other than the estimates."
-        )
-
-        model = self.gpt_oss
-
-        reactions_formatted_str = '\n'.join([f"{i+1}. {self._get_reaction_as_str(react)}" for i, react in enumerate(reactions)])
-
-        tries_num = 2
-        results = []
-        for try_i in range(tries_num):            
-            response = self.__fetch_llm_answer_str( f"{instruct}\n\n{reactions_formatted_str}", model)
-            response = response.strip().split('\n')
-            if len(response) == len(reactions):
-                def is_float(value):
-                    try:
-                        float(value)
-                        return True
-                    except (TypeError, ValueError):
-                        return False
-
-                for i, entry in enumerate(response):
-                    dH, dG = re.sub(r'\s+', '', entry).split(',')
-                    if is_float(dH) and is_float(dG):
-                        results.append({'rid': reactions[i]['rid'], 'estimates': {'dH': float(dH), 'dG': float(dG)}})
-            
-                return results
-
-    
-
-    def get_reactions_thermo(self, max_workers=1):
-        current_thermo = self._load_jsonl(self.reactions_thermo_llm_fn)
-
-        current_thermo_map = {x['rid']: x['estimates'] for x in current_thermo}
-
-        reactions = [
-            r for r in self._load_jsonl(self.reactions_parsed_fn)
-            if r['balanced']
-        ]
-
-        TARGET_ESTIMATES_NUM = 10
-        REACTIONS_BATCH_SIZE = 10
-
-        def save_results():
-            self.log(f"Writing results...")
-            result_thermo = [{'rid': rid, 'estimates': est} for rid, est in current_thermo_map.items()]
-
-            self._write_jsonl(result_thermo, self.reactions_thermo_llm_fn)
-
-        def missing_estimates():
-            return [r for r in reactions if len(current_thermo_map.get(r['rid'], [])) < TARGET_ESTIMATES_NUM]
-
-        
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = set()
-            reactions_staged = missing_estimates()
-            iter_i = 0
-            try:
-                while reactions_staged:
-                    iter_i += 1
-
-                    futures.clear()
-
-                    for i in range(0, len(reactions_staged), REACTIONS_BATCH_SIZE):
-                        batch = reactions_staged[i:i+REACTIONS_BATCH_SIZE]
-                        futures.add(executor.submit(self.__get_reactions_thermo, batch))
-
-                    with self._rich_progress(transient=True) as progress:
-                        task = progress.add_task(f"Iteration {iter_i}", total=len(futures))
-                        while futures:
-                            done, futures = wait(futures, return_when=FIRST_COMPLETED)
-                            processed_cnt = 0
-                            for future in done:
-                                results = self.__get_future_result(future, executor)
-                                if not results:
-                                    continue
-
-                                for entry in results:
-                                    current_thermo_map.setdefault(entry['rid'], []).append(entry['estimates'])
-                                    processed_cnt += 1
-
-                            progress.update(task, advance=len(done))
-                            progress.refresh()
-                    
-                    reactions_staged = missing_estimates()
-                    save_results()
-    
-            finally:
-                save_results()
-                executor.shutdown(wait=False, cancel_futures=True)
-                self.log(f"Done!")
     
 
     def __get_chems_hazards_categories(self, chems):
@@ -773,7 +672,7 @@ class ChemsLLMFetch(ChemsLLMParse):
         categories_count = [dict() for _ in chems]
 
         while run_i < runs_num:
-            response = self.__fetch_llm_answer_str(f"{instruct}\n\n{chems_formatted_str}", model)
+            response = self._fetch_llm_answer_str(f"{instruct}\n\n{chems_formatted_str}", model)
             response = response.strip().split('\n')
 
             if len(response) == len(chems):
@@ -857,7 +756,7 @@ class ChemsLLMFetch(ChemsLLMParse):
         while run_i < runs_num:
             model = models_schedule[model_i]
 
-            response = self.__fetch_llm_answer_str(f"{instruct}\n\n{chems_formatted_str}", model)
+            response = self._fetch_llm_answer_str(f"{instruct}\n\n{chems_formatted_str}", model)
             response = response.strip().split('\n')
 
             if len(response) == len(chems):

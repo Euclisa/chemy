@@ -25,13 +25,9 @@ class ChemsLLMParse(ChemsParseReactions):
         self.reactions_details_llm_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details_llm.jsonl')
         self.reactions_descriptions_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_descriptions.jsonl')
 
-        self.reactions_thermo_llm_fn = os.path.join(self.data_dir, 'thermo', 'llm', 'reactions_thermo_llm.jsonl')
-
         self.chems_descriptions_fn = os.path.join(self.data_dir, 'chems', 'chems_descriptions.jsonl')
         self.chems_hazard_categories_llm_fn = os.path.join(self.data_dir, 'chems', 'chems_hazard_categories_llm.jsonl')
         self.chems_nfpa_llm_fn = os.path.join(self.data_dir, 'chems', 'chems_nfpa_llm.jsonl')
-
-        self._file_sorting_prefs[self.reactions_thermo_llm_fn] = 'rid'
 
         self.sources_priority[self.gpt_oss] = 5
         self.sources_priority[self.qwen] = 4

@@ -11,17 +11,17 @@ import random
 import numpy as np
 from copy import deepcopy
 
-from chems_parse_reactions import ChemsParseReactions
+from chems_thermo import ChemsThermo
 
 KCAL_PER_HARTREE = 627.5094740631
 
 
-class ChemsThermoXtb(ChemsParseReactions):
+class ChemsThermoXtb(ChemsThermo):
     def __init__(self, data_dir):
         super().__init__(data_dir)
 
-        self.chems_thermo_xtb_fn = os.path.join(self.data_dir, 'thermo', 'chems_thermo_xtb.jsonl')
-        self.reactions_thermo_xtb_fn = os.path.join(self.data_dir, 'thermo', 'reactions_thermo_xtb.jsonl')
+        self.chems_thermo_xtb_fn = os.path.join(self.thermo_dir, 'chems_thermo_xtb.jsonl')
+        self.reactions_thermo_xtb_fn = os.path.join(self.thermo_dir, 'reactions_thermo_xtb.jsonl')
 
         self._file_sorting_prefs[self.chems_thermo_xtb_fn] = 'cid'
         self._file_sorting_prefs[self.reactions_thermo_xtb_fn] = 'rid'
