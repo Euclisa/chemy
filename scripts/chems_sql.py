@@ -69,7 +69,7 @@ class ChemsSql(ChemsDB):
         data = [(x['cid'], x['wiki']) for x in chems if x['wiki'] is not None]
         execute_values(cur, sql, data)
 
-        hazards = self._load_jsonl(self.hazards_chems_fn)
+        hazards = self._load_jsonl(self.chems_hazards_wiki_fn)
         sql = \
         "INSERT INTO compound_nfpa (cid, health, flammability, instability) " \
         "VALUES %s"

@@ -72,9 +72,11 @@ class ChemsMain(ChemsLLMParse, ChemsOrdParse, ChemsSql):
     
 
     def test(self):
-        cats = list(map(lambda x: x['name'], filter(lambda x: x['domain'] == 'MeSH', self._load_jsonl(self.categories_fn))))
-        print(len(cats))
-        #print('\n'.join(cats))
+        entries = self._load_jsonl(self.chems_hazard_categories_llm_fn)
+        for entry in entries:
+            entry['source'] = self.gpt_oss
+        
+        self._write_jsonl(entries, self.chems_hazard_categories_llm_fn)
         
 
         
@@ -84,8 +86,4 @@ class ChemsMain(ChemsLLMParse, ChemsOrdParse, ChemsSql):
 
 if __name__ == "__main__":
     chems = ChemsMain('data/')
-    chems.parse_raw_ord_reactions('cleaned_ord.jsonl')
-    chems.parse_raw_llm_reactions()
-    chems.merge_reactions()
-    chems.merge_details()
-    chems.generate_edges()
+    chems.test()

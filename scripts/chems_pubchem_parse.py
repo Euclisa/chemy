@@ -25,8 +25,8 @@ class ChemsParsePubchem(ChemsDB):
 
         self.chems_fn = os.path.join(self.data_dir, 'chems', "chems.jsonl")
         self.chems_categories_fn = os.path.join(self.data_dir, 'chems', "chems_categories.jsonl")
-        self.wiki_chems_fn = os.path.join(self.data_dir, 'chems', "wiki_chems.jsonl")
-        self.hazards_chems_fn = os.path.join(self.data_dir, 'chems', "hazards_chems.jsonl")
+        self.chems_wiki_fn = os.path.join(self.data_dir, 'chems', "chems_wiki.jsonl")
+        self.chems_hazards_wiki_fn = os.path.join(self.data_dir, 'chems', "chems_hazards_wiki.jsonl")
         self.chems_edges_fn = os.path.join(self.data_dir, 'chems', 'chems_edges.jsonl')
         self.elements_fn = os.path.join(self.data_dir, 'chems', 'elements.jsonl')
 
@@ -38,8 +38,8 @@ class ChemsParsePubchem(ChemsDB):
 
         self._file_sorting_prefs[self.chems_fn] = 'complexity'
         self._file_sorting_prefs[self.chems_categories_fn] = 'cid'
-        self._file_sorting_prefs[self.wiki_chems_fn] = 'cid'
-        self._file_sorting_prefs[self.hazards_chems_fn] = 'cid'
+        self._file_sorting_prefs[self.chems_wiki_fn] = 'cid'
+        self._file_sorting_prefs[self.chems_hazards_wiki_fn] = 'cid'
         self._file_sorting_prefs[self.chems_edges_fn] = 'eid'
         self._file_sorting_prefs[self.elements_fn] = None
 
@@ -80,7 +80,7 @@ class ChemsParsePubchem(ChemsDB):
 
     @cached_property
     def cid_wiki_map(self):
-        wiki_entries = self._load_jsonl(self.wiki_chems_fn)
+        wiki_entries = self._load_jsonl(self.chems_wiki_fn)
         return {entry['cid']: entry['wiki'] for entry in wiki_entries}
 
 

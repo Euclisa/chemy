@@ -215,7 +215,7 @@ class ChemsLLMFetch(ChemsLLMParse):
 
     def get_rare_raw_reactions_for_top_chems(self, max_workers=1): 
         hazards_chems = dict()
-        with open(self.hazards_chems_fn) as f:
+        with open(self.chems_hazards_wiki_fn) as f:
             for line in f:
                 hazard = json.loads(line)
                 hazards_chems[hazard['cid']] = hazard      

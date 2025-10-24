@@ -197,14 +197,14 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
         thermo_entries = self._load_jsonl(self.reactions_thermo_llm_fn)
         thermo_map = {entry['rid']: entry for entry in thermo_entries}
 
-        CHEM_REACT_OCCURENCE_THR = 3
-
         reactions = self._load_jsonl(self.reactions_parsed_fn)
         chem_reactions_occurence = self._get_chems_reactions_occurence(reactions)
 
         def reactions_filter(react):
             if react['rid'] not in thermo_map or not react['balanced']:
                 return False
+            
+            CHEM_REACT_OCCURENCE_THR = 3
             
             all_cids = self._get_all_reaction_cids(react)
             if any(chem_reactions_occurence[cid] < CHEM_REACT_OCCURENCE_THR for cid in all_cids):
