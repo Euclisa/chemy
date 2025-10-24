@@ -36,6 +36,23 @@ class ChemsParseReactions(ChemsParsePubchem):
         self.sources_priority = dict()
     
 
+    def _get_all_reaction_cids(self, reaction):
+        return list(set(entry['cid'] for entry in reaction['reagents']+reaction['products']))
+
+
+    def _get_chems_reactions_occurence(self, reactions=None):
+        if reactions is None:
+            reactions = self._load_jsonl(self.reactions_parsed_fn)
+
+        chem_reactions_occurence = dict()
+        for react in reactions:
+            all_cids = self._get_all_reaction_cids(react)
+            for cid in all_cids:
+                chem_reactions_occurence[cid] = chem_reactions_occurence.setdefault(cid, 0) + 1
+        
+        return chem_reactions_occurence
+    
+
     def _get_reaction_as_str(self, reaction):
         def format_components(components):
             parts = []

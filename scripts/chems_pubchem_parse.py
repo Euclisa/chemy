@@ -111,6 +111,10 @@ class ChemsParsePubchem(ChemsDB):
                     _cas_cid_map[cas] = cid
         
         return _cas_cid_map
+    
+    @cached_property
+    def symb_to_el(self):
+        return {el['symbol']: el for el in self._load_jsonl(self.elements_fn)}
 
 
     def __clear_runtime_chems_properties(self):

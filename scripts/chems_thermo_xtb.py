@@ -20,8 +20,10 @@ class ChemsThermoXtb(ChemsThermo):
     def __init__(self, data_dir):
         super().__init__(data_dir)
 
-        self.chems_thermo_xtb_fn = os.path.join(self.thermo_dir, 'chems_thermo_xtb.jsonl')
-        self.reactions_thermo_xtb_fn = os.path.join(self.thermo_dir, 'reactions_thermo_xtb.jsonl')
+        self.xtb_thermo_dir = os.path.join(self.thermo_dir, 'xtb')
+
+        self.chems_thermo_xtb_fn = os.path.join(self.xtb_thermo_dir, 'chems_thermo_xtb.jsonl')
+        self.reactions_thermo_xtb_fn = os.path.join(self.xtb_thermo_dir, 'reactions_thermo_xtb.jsonl')
 
         self._file_sorting_prefs[self.chems_thermo_xtb_fn] = 'cid'
         self._file_sorting_prefs[self.reactions_thermo_xtb_fn] = 'rid'
@@ -376,19 +378,11 @@ class ChemsThermoXtb(ChemsThermo):
                     f.write(json.dumps(entry) + '\n')
 
 
-    def compute_formation_values(self, xtb_thermo_fn, out_fn):
-        with open('data/chems/chems.jsonl') as f:
-            chems = [json.loads(x) for x in f.read().strip().split('\n')]
+    def compute_formation_values(self, out_fn):        
+        xtb_thermo_entries = self._load_jsonl(self.chems_thermo_xtb_fn)
         
-        with open('data/chems/elements.jsonl') as f:
-            elements = [json.loads(x) for x in f.read().strip().split('\n')]
-
-        with open(xtb_thermo_fn) as f:
-            xtb_thermo_entries = [json.loads(x) for x in f.read().strip().split('\n')]
-        
-        symb_to_el = {el['symbol']: el for el in elements}
-        cid_to_chem = {chem['cid']: chem for chem in chems}
-        cid_to_thermo = {th['cid']: th for th in xtb_thermo_entries}
+        cid_to_Ht = {th['cid']: th['Ht_Eh'] * KCAL_PER_HARTREE for th in xtb_thermo_entries if th['Ht_Eh'] is not None}
+        cid_to_Gt = {th['cid']: th['Gt_Eh'] * KCAL_PER_HARTREE for th in xtb_thermo_entries if th['Gt_Eh'] is not None}
         
         with open(out_fn, 'w') as f_out:
             for entry in xtb_thermo_entries:
@@ -396,39 +390,19 @@ class ChemsThermoXtb(ChemsThermo):
                     continue
 
                 cid = entry['cid']
-                chem = cid_to_chem[cid]
-                name = chem['cmpdname']
-                mol = Chem.MolFromInchi(chem['inchi'])
-                mol = Chem.AddHs(mol)
-                if not mol:
-                    print(f"Failed to obtain mol object for '{name}' ({cid})")
+
+                entry['Ht_Eh'] *= KCAL_PER_HARTREE
+                entry['Gt_Eh'] *= KCAL_PER_HARTREE
+                dHf = self._compute_formation_value(cid, entry['Ht_Eh'], cid_to_Ht)
+                dGf = self._compute_formation_value(cid, entry['Gt_Eh'], cid_to_Gt)
+                
+                if dHf is None or dGf is None:
+                    self.log_warn(f"Failed to compute formation thermo values for CID: {cid}")
                     continue
-                
-                atom_counts = {}
-                for atom in mol.GetAtoms():
-                    symbol = atom.GetSymbol()
-                    atom_counts[symbol] = atom_counts.get(symbol, 0) + 1
-                
-                dHf = Ht = entry['Ht_Eh'] * KCAL_PER_HARTREE
-                dGf = Gt = entry['Gt_Eh'] * KCAL_PER_HARTREE
-                for symbol, count in atom_counts.items():
-                    el_entry = symb_to_el[symbol]
-                    el_cid = el_entry['cid']
-                    el_atom_count = el_entry['atom_count']
-                    el_thermo = cid_to_thermo.get(el_cid, {'Ht_Eh': None})
 
-                    if el_thermo['Ht_Eh'] is None:
-                        break
-                    
-                    el_ht = el_thermo['Ht_Eh'] * KCAL_PER_HARTREE / el_atom_count
-                    el_gt = el_thermo['Gt_Eh'] * KCAL_PER_HARTREE / el_atom_count
-                    
-                    dHf -= count * el_ht
-                    dGf -= count * el_gt
+                out_entry = {'cid': cid, 'Ht': entry['Ht_Eh'], 'Gt': entry['Gt_Eh'], 'dHf': dHf, 'dGf': dGf, 'T': 298.15}
+                f_out.write(json.dumps(out_entry) + '\n')
 
-                else:      
-                    out_entry = {'cid': cid, 'Ht': Ht, 'Gt': Gt, 'dHf': dHf, 'dGf': dGf, 'T': 298.15}
-                    f_out.write(json.dumps(out_entry) + '\n')
 
 
     def print_thermo(self, thermo_fn, n=100):
@@ -490,7 +464,7 @@ class ChemsThermoXtb(ChemsThermo):
 
 if __name__ == "__main__":
     thermo = ChemsThermoXtb('data/')
-    thermo.compute_reactions_thermo_xtb()
+    thermo.compute_formation_values('out_xtb.jsonl')
 
     #get_structures('3d.sdf', '3d_structures.jsonl')
     #convert_to_xyz_rdkit('3d_structures.jsonl', 'conformers/')

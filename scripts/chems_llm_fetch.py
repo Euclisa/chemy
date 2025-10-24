@@ -425,17 +425,11 @@ class ChemsLLMFetch(ChemsLLMParse):
     
 
     def get_chems_descriptions(self, max_workers=1):
-        chems_power = dict()
-        with open(self.reactions_parsed_fn) as f:
-            for line in f:
-                reaction = json.loads(line)
-                all_cids = [x['cid'] for x in reaction['reagents']] + [x['cid'] for x in reaction['products']]
-                for cid in all_cids:
-                    chems_power[cid] = chems_power.setdefault(cid, 0) + 1
+        chem_reactions_occurence = self._get_chems_reactions_occurence()        
         
         processed = self.__get_processed_entries(self.chems_descriptions_fn, 'cid')
         
-        staged_chems = sorted([chem for chem in self.chems if chem['cid'] not in processed], key=lambda x: chems_power.get(x['cid'], 0), reverse=True)
+        staged_chems = sorted([chem for chem in self.chems if chem['cid'] not in processed], key=lambda x: chem_reactions_occurence.get(x['cid'], 0), reverse=True)
 
         VALIDATION_RUNS_NUM = 6
 
@@ -544,20 +538,13 @@ class ChemsLLMFetch(ChemsLLMParse):
 
 
     def get_reactions_descriptions(self, max_workers=1):
-        chems_power = dict()
-        reactions = []
-        with open(self.reactions_parsed_llm_fn) as f:
-            for line in f:
-                reaction = json.loads(line)
-                all_cids = [x['cid'] for x in reaction['reagents']] + [x['cid'] for x in reaction['products']]
-                for cid in all_cids:
-                    chems_power[cid] = chems_power.setdefault(cid, 0) + 1
-                reactions.append(reaction)
+        reactions = self._load_jsonl(self.reactions_parsed_llm_fn)
+        chem_reactions_occurence = self._get_chems_reactions_occurence(reactions)
 
         reactions_power = dict()
         for react in reactions:
-            all_cids = [x['cid'] for x in reaction['reagents']] + [x['cid'] for x in reaction['products']]
-            reactions_power[react['rid']] = sum(chems_power[x] for x in all_cids) / len(all_cids)
+            all_cids = self._get_all_reaction_cids(react)
+            reactions_power[react['rid']] = sum(chem_reactions_occurence[x] for x in all_cids) / len(all_cids)
         
         processed = self.__get_processed_entries(self.reactions_details_llm_fn, 'rid')
         reactions = list(filter(lambda x: x['rid'] not in processed, reactions))
