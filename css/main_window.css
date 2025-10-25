@@ -39,3 +39,44 @@
     font-size: 0.95rem;
     line-height: 1.6;
 }
+
+button.floating-btn {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+    border: 0;
+    border-radius: 1rem;
+    box-shadow: 0.25rem 0.25rem 0.5rem var(--light-black);
+    padding: 0.5rem;
+    transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+    font-size: 1.5rem;
+    inline-size: 3rem;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1 / 1;
+    cursor: pointer;
+}
+
+button.floating-btn:hover {
+    background: linear-gradient(135deg, var(--primary-hover) 0%, var(--secondary) 100%);
+    transform: translateY(-0.1rem);
+    box-shadow: 0.4rem 0.4rem 0.5rem var(--light-black);
+}
+
+.floating-bar {
+    position: absolute;
+    display: flex;
+    flex-direction: row-reverse;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 1rem;
+    margin: 1rem;
+}
+
+.floating-bar.bottom-floating-bar {
+    right: 0;
+    bottom: 0;
+}
+
+.floating-bar.top-floating-bar {
+    right: 0;
+    top: 0;
+}

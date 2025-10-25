@@ -38,12 +38,17 @@
             <button id="cancel-compute" style="display:none;">Cancel</button>
         </div>
         <div class="main-window" id="main" role="main" aria-label="Main content area">
+            <div class="floating-bar bottom-floating-bar">
+                <button class="floating-btn"><i class="fa-solid fa-eraser"></i></button>
+            </div>
+            <div class="floating-bar top-floating-bar">
+                <button class="floating-btn", id="floating-btn-clear"><i class="fa-solid fa-info"></i></button>
+            </div>
             <div class="main-window-content">
                 <strong>Chemical Reactions Graph Explorer</strong>
                 <p>Search for chemical compounds using the side panel and build reaction pathways between source and target substances</p>
             </div>
-            <div style="position: relative; width: 96px; height: 96px;">
-</div>
+            
         </div>
 
     <div class="side-panel" id="sidePanel" role="complementary" aria-hidden="true" aria-label="Side panel">
