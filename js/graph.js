@@ -14,15 +14,6 @@ function computeTanimoto(fp1, fp2) {
     return orPop === 0 ? 1 : andPop / orPop;
 }
 
-function minH(node, ends) {
-    let maxSim = 0;
-    for (let end of ends) {
-        const sim = computeTanimoto(cidToCompound.get(node).ECFP4_fp, cidToCompound.get(end).ECFP4_fp);
-        if (sim > maxSim) maxSim = sim;
-    }
-    return 1 - maxSim;
-}
-
 class PriorityQueue {
     constructor(comparator = (a, b) => a - b) {
         this._heap = [];
@@ -75,7 +66,16 @@ class PriorityQueue {
     }
 }
 
-function findKShortestPathsWithSources(sources, targets, k, maxLen) {
+function minH(node, ends) {
+    let maxSim = 0;
+    for (let end of ends) {
+        const sim = computeTanimoto(cidToCompound.get(node).ECFP4_fp, cidToCompound.get(end).ECFP4_fp);
+        if (sim > maxSim) maxSim = sim;
+    }
+    return 1 - maxSim;
+}
+
+function findKShortestPaths(sources, targets, k, maxLen) {
     // Finds paths from targets to sources using reversed graph and then reverses paths
 
     const sourceSet = new Set(sources);
@@ -114,49 +114,46 @@ function findKShortestPathsWithSources(sources, targets, k, maxLen) {
     return paths;
 }
 
-function findKShortestPathsNoSources(targets, k, maxLen) {
-    // Finds paths from targets to compounds with complexity <= complexityThr using complexity difference as distance
-    
-    const queue = []
+function _findKShortestPathsSingleList(nodes_list, k, maxLen, working_graph) {
+    //const queue = [];
+    const queue = new PriorityQueue((a, b) => a.f - b.f);
     const paths = [];
 
-    const complexityThr = 10
-    
-    const hMetrics = node => {
-        const nodeComplexity = cidToCompound.get(node).complexity;
-        return nodeComplexity > complexityThr ? nodeComplexity - complexityThr : 0;
+    for (let node of nodes_list) {
+        queue.push({f: 0, cost: 0, node: node, path: [node]});
     }
 
-    for (let target of targets) {
-        const h = hMetrics(target);
-        queue.push({cost: 0, node: target, path: [target]});
-    }
-
-    while (queue.length > 0 && paths.length < k) {
-        const current = queue.shift();
+    while (queue.size() > 0 && paths.length < k) {
+        const current = queue.pop();
         const {cost, node, path} = current;
-        const currentH = hMetrics(node);
 
         if (cost > maxLen) continue;
         
         if (cost > 0)
             paths.push({path, length: cost});
-        if (paths.length > k)
-            paths.shift();
 
-        for (let neigh of graph_reverse.get(node) || []) {
-            const h = hMetrics(neigh);
-            if (h > currentH || path.includes(neigh) || backgroundCids.has(neigh)) continue;
+        for (let neigh of working_graph.get(node) || []) {
+            const h = minH(neigh, nodes_list);
+            if (path.includes(neigh) || backgroundCids.has(neigh)) continue;
             const newCost = cost + 1;
             const newPath = [...path, neigh];
-            queue.push({cost: newCost, node: neigh, path: newPath});
+            queue.push({f: h, cost: newCost, node: neigh, path: newPath});
         }
     }
 
-    paths.forEach(path => { path.path.reverse() });
-
     return paths;
 }
+
+function findKShortestPathsOnlyTargets(targets, k, maxLen) {
+    const paths = _findKShortestPathsSingleList(targets, k, maxLen, graph_reverse);
+    paths.forEach(path => { path.path.reverse() });
+    return paths;
+}
+
+function findKShortestPathsOnlySources(sources, k, maxLen) {
+    return _findKShortestPathsSingleList(sources, k, maxLen, graph);
+}
+
 
 function getProcessedLinks() {
     const links = [];
@@ -187,14 +184,6 @@ function handleSubmit() {
 
     const sources = Array.from(sourceNodes);
     const targets = Array.from(targetNodes);
-    if (targets.length === 0) {
-        if (sources.length !== 0) {
-            alert('Please add at least one target substance.');
-            return;
-        }
-        returnToBlank();
-        return;
-    }
 
     const sourcesSelected = sources.length > 0;
 
@@ -205,7 +194,18 @@ function handleSubmit() {
     showLoading('Computing paths...', true);
 
     setTimeout(() => {
-        const allPaths = sourcesSelected ? findKShortestPathsWithSources(sources, targets, k, n) : findKShortestPathsNoSources(targets, k, n);
+        let allPaths = null;
+        if (sources.length > 0 && targets.length > 0)
+            allPaths = findKShortestPaths(sources, targets, k, n);
+        else if (sources.length > 0)
+            allPaths = findKShortestPathsOnlySources(sources, k, n);
+        else if (targets.length > 0)
+            allPaths = findKShortestPathsOnlyTargets(targets, k, n);
+        else {
+            alert('Add at list one compound to any list');
+            return;
+        }
+
         selectedCIDs.clear();
 
         allPaths.forEach(({path}) => path.forEach(node => selectedCIDs.add(node)));
@@ -219,8 +219,7 @@ function handleSubmit() {
                         const cid = reagent.cid;
                         directedEdges.add(`${cid}-${path[i+1]}`);
                         if(!selectedCIDs.has(cid)) {
-                            if(sourcesSelected)
-                                secondaryNodes.add(cid);
+                            secondaryNodes.add(cid);
                             selectedCIDs.add(cid);
                         }
                     }
