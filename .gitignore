@@ -10,3 +10,4 @@ conformers/
 /*.jsonl
 /*.txt
 merged_reactions_parsed.jsonl
+test.html

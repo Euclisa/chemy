@@ -25,6 +25,7 @@ let ridToDescription = new Map();
 let commonnesSortedCids = []
 let cidToEdges = new Map();
 let cidToCompoundProperties = new Map();
+let cidToHazards = new Map();
 
 async function loadData(fileName) {
     try {
@@ -62,11 +63,20 @@ async function initializeData() {
         commonnesSortedCids = commonnesSortedCids.map(Number);
         let compoundProperties = await loadData('data/chems_properties/chems_properties.jsonl');
         
-        let chemsDescriptionsLoaded = await loadData('data/chems/chems_descriptions.jsonl');
+        let chemsDescriptionsLoaded = await loadData('data/chems_properties/llm/chems_descriptions.jsonl');
         chemsDescriptionsLoaded.forEach(entry => cidToDescription.set(entry.cid, entry.description));
 
         let reactionsDescriptionsLoaded = await loadData('data/reactions_details/reactions_details.jsonl');
         reactionsDescriptionsLoaded.forEach(entry => ridToDescription.set(entry.rid, entry.description));
+
+        let chemsHazardsLoaded = await loadData('data/chems_properties/hazards/chems_hazards.jsonl');
+        chemsHazardsLoaded.forEach(entry => {
+            nfpa = entry.nfpa ? entry.nfpa.value : null;
+            pictograms = entry.pictograms ? entry.pictograms.value : null;
+            if (pictograms && pictograms.length === 0)
+                throw 1;
+            cidToHazards.set(entry.cid, {nfpa, pictograms});
+        });
         
         if (chemsData.length === 0) {
             resultsContainer.innerHTML = '<div class="no-results">No compound data available</div>';

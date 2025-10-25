@@ -19,13 +19,69 @@ function showPopup(type, data) {
     const content = popup.querySelector('#popup-content');
 
     if (type === 'node') {
-        const compound = cidToCompound.get(data.id);
-        const compoundProperties = cidToCompoundProperties.get(data.id);
+        const cid = data.id;
+        const compound = cidToCompound.get(cid);
+        const compoundProperties = cidToCompoundProperties.get(cid);
         title.textContent = compound ? compound.cmpdname : 'Node Info';
         
         let html = '<div class="compound-structure">';
-        html += `<img src="data/structures/${data.id}.svg" alt="${compound.cmpdname}" onerror="this.style.display='none'">`;
+        html += `<img src="data/structures/${cid}.svg" alt="${compound.cmpdname}" onerror="this.style.display='none'">`;
         html += '</div>';
+
+        console.log(cidToHazards.get(cid));
+        if (cidToHazards.has(cid)) {
+            console.log("lul")
+            const compoundHazards = cidToHazards.get(cid);
+            html += '<div class="compound-hazards">'
+            if (compoundHazards.nfpa) {
+
+                let createNfpaDiamond = (health, flammability, instability) => {
+                    return `
+                    <div class="nfpa-diamond">
+                    <div class="nfpa-diamond-grid">
+
+                        <div class="nfpa-diamond-item nfpa-flammability">
+                        <span class="nfpa-diamond-item-value">${flammability}</span>
+                        </div>
+
+                        <div class="nfpa-diamond-item nfpa-stability">
+                        <span class="nfpa-diamond-item-value">${instability}</span>
+                        </div>
+
+                        <div class="nfpa-diamond-item nfpa-health">
+                        <span class="nfpa-diamond-item-value">${health}</span>
+                        </div>
+
+                        <div class="nfpa-diamond-item nfpa-special">
+                        <span class="nfpa-diamond-item-value"></span>
+                        </div>
+
+                    </div>
+                </div>`
+                };
+
+
+                const nfpa = compoundHazards.nfpa;
+                const health = 'health' in nfpa ? nfpa.health.toString() : "";
+                const flammability = 'flammability' in nfpa ? nfpa.flammability.toString() : "";
+                const instability = 'instability' in nfpa ? nfpa.instability.toString() : "";
+                
+                html += createNfpaDiamond(health, flammability, instability);
+            }
+
+            if (compoundHazards.pictograms) {
+                html += '<div class="ghs-pictograms">';
+
+                pictograms = compoundHazards.pictograms;
+                for (ghs of pictograms) {
+                    html += `<img src="data/assets/ghs_pictograms/${ghs}.svg">`
+                }
+                
+                html += '</div>';
+            }
+
+            html += '</div>';
+        }
 
         html += '<div class="compound-info">';
         for (const entry of compoundProperties) {
@@ -45,7 +101,7 @@ function showPopup(type, data) {
         }
         html += '</div>';
         
-        const description = cidToDescription.get(data.id);
+        const description = cidToDescription.get(cid);
         if (description) {
             html += '<div class="compound-info">';
             html += '<span class="compound-info-label description">Description:</span>';

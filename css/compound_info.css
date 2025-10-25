@@ -42,9 +42,84 @@
 }
 
 .compound-structure img {
-    max-width: 200px;
+    width: 25rem;
+    height: 25rem;
     border: 2px solid var(--border);
     border-radius: 0.75rem;
     padding: 1rem;
     background: white;
+}
+
+
+.compound-hazards {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 1rem;
+    gap: 1rem
+}
+
+.nfpa-diamond {
+    width: 12rem;
+    height: 12rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nfpa-diamond-grid {
+    display: grid;
+    grid-template-columns: 50% 50%;
+    grid-template-rows: 50% 50%;
+    width: 5rem;
+    height: 5rem;
+    gap: 0;
+    transform: rotate(45deg);
+    border: 2px solid #1f2937;
+}
+
+.nfpa-diamond-item {
+    border: 1px solid var(--black);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.nfpa-diamond-item.nfpa-health {
+    background-color: rgb(146, 78, 255);
+}
+
+.nfpa-diamond-item.nfpa-flammability {
+    background-color: rgb(255, 51, 85);
+}
+
+.nfpa-diamond-item.nfpa-stability {
+    background-color: rgb(255, 255, 78);
+}
+
+.nfpa-diamond-item.nfpa-special {
+    background-color: white;
+}
+
+.nfpa-diamond-item-value {
+    color: var(--black);
+    font-weight: bold;
+    transform: rotate(-45deg);
+}
+
+
+.ghs-pictograms {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    align-content: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    max-width: 20rem;
+}
+
+.ghs-pictograms img {
+    width: 5rem;
+    height: 5rem;
 }

@@ -27,7 +27,7 @@ class ChemsHazards(ChemsPropertiesLLM):
         for entry in wiki_hazards:
             source = 'wikipedia'
             nfpa = {'value': entry['nfpa'], 'source': source}
-            picts = {'value': entry['pictograms'], 'source': source}
+            picts = {'value': entry['pictograms'], 'source': source} if entry['pictograms'] else None
             cid_hazards[entry['cid']] = {'nfpa': nfpa, 'pictograms': picts}
         
 
@@ -43,11 +43,10 @@ class ChemsHazards(ChemsPropertiesLLM):
         
         for entry in llm_hazards_cats:
             cid = entry['cid']
-            if cid in cid_hazards:
-                continue
-            
-            picts = {'value': [llm_to_ghs[x] for x in entry['categories']], 'source': entry['source']}
-            cid_hazards[cid] = {'pictograms': picts}
+            cid_hazards.setdefault(cid, dict())
+            if 'pictograms' not in cid_hazards[cid] or cid_hazards[cid]['pictograms'] is None:
+                picts = {'value': [llm_to_ghs[x] for x in entry['categories']], 'source': entry['source']} if entry['categories'] else None
+                cid_hazards[cid]['pictograms'] = picts
         
         for entry in llm_nfpa:
             cid = entry['cid']

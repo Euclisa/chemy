@@ -754,7 +754,7 @@ class ChemsLLMFetch(ChemsPropertiesUnified):
                         h, f, s = entry_values
                         ratings[i]['health'] += h
                         ratings[i]['flammability'] += f
-                        ratings[i]['stability'] += s
+                        ratings[i]['instability'] += s
                     except Exception:
                         valid_run = False
                         break
@@ -777,7 +777,7 @@ class ChemsLLMFetch(ChemsPropertiesUnified):
         for r in ratings:
             r['health'] /= runs_num
             r['flammability'] /= runs_num
-            r['stability'] /= runs_num
+            r['instability'] /= runs_num
 
         # Prepare final results
         results = []
