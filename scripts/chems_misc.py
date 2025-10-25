@@ -4,10 +4,10 @@ import os
 from rdkit import Chem
 from rdkit.Chem import Draw
 
-from chems_parse_reactions import ChemsParseReactions
+from chems_reaction_properties import ChemsReactionProperties
 
 
-class ChemsMisc(ChemsParseReactions):
+class ChemsMisc(ChemsReactionProperties):
 
     def __init__(self, data_dir):
         super().__init__(data_dir)

@@ -5,11 +5,11 @@ import json
 import periodictable
 import requests
 
-from chems_pubchem_parse import ChemsParsePubchem
+from chems_properties import ChemsProperties
 
 
 
-class ChemsFetchPubchem(ChemsParsePubchem):
+class ChemsFetchPubchem(ChemsProperties):
 
     def __init__(self, data_dir):
         super().__init__(data_dir)

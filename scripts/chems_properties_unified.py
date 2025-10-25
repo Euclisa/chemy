@@ -1,17 +1,21 @@
 import os
+import numpy as np
 
 from chems_solubility import ChemsSolubility
 from chems_crc import ChemsCRC
+from chems_hazards import ChemsHazards
 
 
-class ChemsPropertiesCompile(ChemsSolubility, ChemsCRC):
+class ChemsPropertiesUnified(ChemsSolubility, ChemsCRC, ChemsHazards):
     
     def __init__(self, data_dir):
         super().__init__(data_dir)
 
         self.chems_properties_compiled_fn = os.path.join(self.chems_properties_dir, 'chems_properties.jsonl')
+        self.chems_curiosity_fn = os.path.join(self.chems_properties_dir, 'chems_curiosity.jsonl')
         
         self._file_sorting_prefs[self.chems_properties_compiled_fn] = 'cid'
+        self._file_sorting_prefs[self.chems_curiosity_fn] = ('curiosity', True)
 
         self.property_max_synonyms = 7
         self.property_max_cas = 5
@@ -94,10 +98,57 @@ class ChemsPropertiesCompile(ChemsSolubility, ChemsCRC):
 
         result_entries = [{'cid': cid, 'properties': props} for cid, props in result.items()]
         self._write_jsonl(result_entries, self.chems_properties_compiled_fn)
+    
+
+
+    def generate_curiosity_index(self):
+        hazards = self._load_jsonl(self.chems_hazards_fn)
+        
+        cid_to_curiosity = dict()
+        for chem in self.chems:
+            cid = chem['cid']
+            cid_to_curiosity[cid] = (chem['complexity'] / self.complexity_thr)
+        
+        for entry in hazards:
+            cid = entry['cid']
+
+            if entry['nfpa'] is None:
+                nfpa_coeff = 0
+            else:
+                nfpa_coeff = sum(entry['nfpa']['value'].values()) / 12
+            
+            if entry['pictograms'] is None:
+                pictograms_coeff = 0
+            else:
+                pictograms_coeff = len(entry['pictograms']['value']) / len(self.LLM_HAZARD_CATEGORIES)
+            
+            if cid in cid_to_curiosity:
+                cid_to_curiosity[cid] += nfpa_coeff + pictograms_coeff
+        
+        chems_occurence = self._get_chems_reactions_occurence()
+
+        # Convert occurrences to array for percentile calculation
+        occur_values = np.array(list(chems_occurence.values()), dtype=float)
+        sorted_vals = np.sort(occur_values)
+        n = len(sorted_vals)
+
+        def percentile_rank(x):
+            # Rank position divided by number of values
+            return (np.searchsorted(sorted_vals, x, side='right') / n)
+
+        for cid, occurence in chems_occurence.items():
+            if cid in cid_to_curiosity:
+                cid_to_curiosity[cid] += 3 * percentile_rank(occurence)
+        
+        max_curiosity = max(cid_to_curiosity.values())
+        curiosity_entries = [{'cid': cid, 'curiosity': curiosity / max_curiosity} for cid, curiosity in cid_to_curiosity.items()]
+
+        self._write_jsonl(curiosity_entries, self.chems_curiosity_fn)
+
 
 
 
 if __name__ == "__main__":
-    props_compile = ChemsPropertiesCompile('data/')
-    props_compile.compile_chems_properties()
+    props_compile = ChemsPropertiesUnified('data/')
+    props_compile.generate_curiosity_index()
             

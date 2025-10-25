@@ -3,11 +3,11 @@ import hashlib
 import base64
 import os
 
-from chems_pubchem_parse import ChemsParsePubchem
+from chems_properties import ChemsProperties
 
 
 
-class ChemsParseReactions(ChemsParsePubchem):
+class ChemsReactionProperties(ChemsProperties):
 
     def __init__(self, data_dir):
         super().__init__(data_dir)
@@ -185,5 +185,5 @@ class ChemsParseReactions(ChemsParsePubchem):
 
 
 if __name__ == "__main__":
-    chems_parse = ChemsParseReactions('data/')
+    chems_parse = ChemsReactionProperties('data/')
     chems_parse.balance_parsed_reactions()

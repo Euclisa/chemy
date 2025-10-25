@@ -2,10 +2,10 @@ import re
 import os
 import json
 import matplotlib.pyplot as plt
-from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
-from scipy.sparse import coo_matrix, lil_matrix
-from scipy.sparse.linalg import spsolve, lsqr
+from scipy.sparse import lil_matrix
+from scipy.sparse.linalg import lsqr
 import numpy as np
 
 from chems_thermo import ChemsThermo
@@ -94,7 +94,7 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
             return [r for r in reactions if len(current_thermo_map.get(r['rid'], [])) < TARGET_ESTIMATES_NUM]
 
         
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = set()
             reactions_staged = missing_estimates()
             iter_i = 0

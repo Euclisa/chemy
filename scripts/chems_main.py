@@ -1,9 +1,9 @@
-from chems_llm_parse import ChemsLLMParse
+from chems_properties_llm import ChemsPropertiesLLM
 from chems_ord_parse import ChemsOrdParse
 from chems_sql import ChemsSql
 
 
-class ChemsMain(ChemsLLMParse, ChemsOrdParse, ChemsSql):
+class ChemsMain(ChemsPropertiesLLM, ChemsOrdParse, ChemsSql):
     
     def __init__(self, data_dir):
         super().__init__(data_dir)

@@ -1,18 +1,21 @@
 import os
 
-from chems_pubchem_parse import ChemsParsePubchem
-from chems_llm_parse import ChemsLLMParse
+from chems_properties_llm import ChemsPropertiesLLM
 
 
 
-class ChemsHazards(ChemsLLMParse):
+class ChemsHazards(ChemsPropertiesLLM):
 
     def __init__(self, data_dir):
         super().__init__(data_dir)
 
-        self.chems_hazards_fn = os.path.join(self.data_dir, 'chems', 'chems_hazards.jsonl')
+        self.chems_properties_hazards_dir =  os.path.join(self.chems_properties_dir,  'hazards')
+
+        self.chems_hazards_fn = os.path.join(self.chems_properties_hazards_dir,  'chems_hazards.jsonl')
+        self.chems_hazards_wiki_fn = os.path.join(self.chems_properties_hazards_dir, "chems_hazards_wiki.jsonl")
 
         self._file_sorting_prefs[self.chems_hazards_fn] = 'cid'
+        self._file_sorting_prefs[self.chems_hazards_wiki_fn] = 'cid'
     
 
     def assemble_chems_hazards(self):

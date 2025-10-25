@@ -1,10 +1,10 @@
 import json
 import os
 
-from chems_parse_reactions import ChemsParseReactions
+from chems_reaction_properties import ChemsReactionProperties
 
 
-class ChemsLLMParse(ChemsParseReactions):
+class ChemsPropertiesLLM(ChemsReactionProperties):
 
     def __init__(self, data_dir):
         super().__init__(data_dir)
@@ -25,9 +25,14 @@ class ChemsLLMParse(ChemsParseReactions):
         self.reactions_details_llm_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details_llm.jsonl')
         self.reactions_descriptions_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_descriptions.jsonl')
 
-        self.chems_descriptions_fn = os.path.join(self.data_dir, 'chems', 'chems_descriptions.jsonl')
-        self.chems_hazard_categories_llm_fn = os.path.join(self.data_dir, 'chems', 'chems_hazard_categories_llm.jsonl')
-        self.chems_nfpa_llm_fn = os.path.join(self.data_dir, 'chems', 'chems_nfpa_llm.jsonl')
+        self.chems_properties_llm_dir = os.path.join(self.chems_properties_dir, 'llm')
+
+        self.chems_descriptions_fn = os.path.join(self.chems_properties_llm_dir, 'chems_descriptions.jsonl')
+        self.chems_hazard_categories_llm_fn = os.path.join(self.chems_properties_llm_dir, 'chems_hazard_categories_llm.jsonl')
+        self.chems_nfpa_llm_fn = os.path.join(self.chems_properties_llm_dir, 'chems_nfpa_llm.jsonl')
+
+        self.LLM_HAZARD_CATEGORIES = {'explosive', 'acute_toxic', 'flammable', 'oxidizer', 
+                    'corrosive', 'serious_health_hazard', 'environment_hazard'}
 
         self.sources_priority[self.gpt_oss] = 5
         self.sources_priority[self.qwen] = 4
@@ -133,5 +138,5 @@ class ChemsLLMParse(ChemsParseReactions):
 
 
 if __name__ == "__main__":
-    chems_parse = ChemsLLMParse('data/')
+    chems_parse = ChemsPropertiesLLM('data/')
     chems_parse.parse_raw_llm_reactions()

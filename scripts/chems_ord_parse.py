@@ -12,11 +12,11 @@ from rdkit.Chem import GraphDescriptors, inchi
 
 from random import sample
 
-from chems_parse_reactions import ChemsParseReactions
+from chems_reaction_properties import ChemsReactionProperties
 
 
 
-class ChemsOrdParse(ChemsParseReactions):
+class ChemsOrdParse(ChemsReactionProperties):
     def __init__(self, chems_data, ord_data='ord-data/'):
         super().__init__(chems_data)
 

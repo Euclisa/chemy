@@ -8,6 +8,7 @@ from tempfile import NamedTemporaryFile
 from chems_properties import ChemsProperties
 
 
+
 class ChemsCRC(ChemsProperties):
 
     def __init__(self, data_dir):

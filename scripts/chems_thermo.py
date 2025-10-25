@@ -1,10 +1,10 @@
 import os
 from rdkit import Chem
 
-from chems_parse_reactions import ChemsParseReactions
+from chems_reaction_properties import ChemsReactionProperties
 
 
-class ChemsThermo(ChemsParseReactions):
+class ChemsThermo(ChemsReactionProperties):
     def __init__(self, data_dir):
         super().__init__(data_dir)
 

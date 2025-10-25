@@ -1,18 +1,18 @@
 from openai import OpenAI
 import threading
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed, wait, FIRST_COMPLETED
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 import json
 import re
 import random
 
 from contextlib import contextmanager
 
-from chems_llm_parse import ChemsLLMParse
+from chems_properties_unified import ChemsPropertiesUnified
 
 
 
-class ChemsLLMFetch(ChemsLLMParse):
+class ChemsLLMFetch(ChemsPropertiesUnified):
 
     class CompletionTokensLimitReached(Exception):
         def __init__(self, message="Reached limit of max completion tokens"):
@@ -94,7 +94,7 @@ class ChemsLLMFetch(ChemsLLMParse):
         try:
             result = future.result()
         except self.CompletionTokensLimitReached:
-            executor.shutdown(wait=False, cancel_futures=True)
+            executor.shutdown(wait=False)
             raise
         except Exception as e:
             self.log_err(f"Exception occured: {e}")
@@ -105,7 +105,7 @@ class ChemsLLMFetch(ChemsLLMParse):
 
     def __submit_entries_to_llm(self, out_fn, entries, max_workers, routine, routine_args=[], batch_size=None, description="Generation"):
         self.log(f"{description}: submitted {len(entries)} entries")
-        with ProcessPoolExecutor(max_workers=max_workers) as executor, open(out_fn, 'a') as f_out:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(out_fn, 'a') as f_out:
             futures = [
                 executor.submit(routine, entry, *routine_args)
                 for entry in entries
@@ -630,11 +630,7 @@ class ChemsLLMFetch(ChemsLLMParse):
         if not chems:
             return None
 
-        # Define categories once
-        CATEGORIES = {'explosive', 'acute_toxic', 'flammable', 'oxidizer', 
-                    'corrosive', 'serious_health_hazard', 'environment_hazard'}
-
-        categories_str = ', '.join(CATEGORIES)
+        categories_str = ', '.join(self.LLM_HAZARD_CATEGORIES)
         instruct = (
             "You will be given a list of chemical compounds. "
             "For each compound, assign one or more categories from the following list using your common knowledge: "
@@ -667,7 +663,7 @@ class ChemsLLMFetch(ChemsLLMParse):
                 for i, entry in enumerate(response):
                     # Normalize categories: lowercase, remove extra spaces
                     cats = [c.lower() for c in re.sub(r'\s+', '', entry).split(',')]
-                    if any(c not in CATEGORIES and c != 'none' for c in cats):
+                    if any(c not in self.LLM_HAZARD_CATEGORIES and c != 'none' for c in cats):
                         valid_run = False
                         break
 
