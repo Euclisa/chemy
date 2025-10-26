@@ -24,3 +24,51 @@
     transform: translateY(-2px);
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
 }
+
+
+.filter-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.filter-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    left: 0;
+    background: var(--panel-bg);
+    border: 1px solid var(--primary);
+    border-radius: 0.5rem;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    min-width: 8rem;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+    z-index: 11;
+    text-wrap: nowrap;
+}
+
+.filter-menu li {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--primary);
+  transition: background 0.2s ease;
+}
+
+.filter-menu li:last-child {
+    border-bottom: 0;
+}
+
+.filter-menu li:hover {
+  background: var(--primary);
+  color: var(--panel-bg);
+}
+
+.filter-menu strong {
+    font-weight: normal;
+    margin-right: 0.5rem;
+}
+
+.filter-dropdown.active .filter-menu {
+  display: block;
+}

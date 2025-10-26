@@ -67,4 +67,53 @@
     cancelCompute.addEventListener('click', hideLoading);
 })();
 
+(function(){
+    document.addEventListener('click', (e) => {
+        const dropdown = e.target.closest('.filter-dropdown');
+        
+        // Close all dropdowns first
+        document.querySelectorAll('.filter-dropdown').forEach(d => {
+            if (d !== dropdown) d.classList.remove('active');
+        });
+
+        // Toggle current dropdown if button clicked
+        if (dropdown && e.target.closest('#catalog-sort-btn')) {
+            dropdown.classList.toggle('active');
+        } else {
+            // Clicked outside — close all
+            document.querySelectorAll('.filter-dropdown').forEach(d => d.classList.remove('active'));
+        }
+    });
+
+    const sortBtn = document.getElementById('catalog-sort-btn');
+    document.querySelectorAll('.filter-menu li').forEach(item => {
+    item.addEventListener('click', () => {
+        sortBtn.innerHTML = item.innerHTML;
+        const sortValue = item.dataset.sort;
+        
+        switch (sortValue) {
+            case 'common-asc':
+                setSortingOrder(commonnesSortedCids, false);
+                break;
+            case 'common-desc':
+                setSortingOrder(commonnesSortedCids, true);
+                break;
+            case 'complex-asc':
+                setSortingOrder(complexitySortedCids, false);
+                break;
+            case 'complex-desc':
+                setSortingOrder(complexitySortedCids, true);
+                break;
+            case 'curious-asc':
+                setSortingOrder(curiositySortedCids, false);
+                break;
+            case 'curious-desc':
+                setSortingOrder(curiositySortedCids, true);
+                break;
+        }
+        displayResults();
+    });
+    });
+})();
+
 document.addEventListener('DOMContentLoaded', initializeData);

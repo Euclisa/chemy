@@ -170,7 +170,10 @@ function createResultItem(compound) {
 }
 
 
-function displayResults(results) {
+function displayResults() {
+    const endIndex = (currentPage + 1) * RESULTS_PER_PAGE;
+    const results = currentResults.slice(0, endIndex);
+
     const resultsContainer = document.getElementById('results-container');
     
     const existingBtn = resultsContainer.querySelector('.load-more-btn');
@@ -189,6 +192,10 @@ function displayResults(results) {
         const resultItem = createResultItem(resultData);
         resultsContainer.appendChild(resultItem);
     });
+
+    if (endIndex < currentResults.length) {
+        addLoadMoreButton();
+    }
 }
 
 function addLoadMoreButton() {
@@ -201,30 +208,12 @@ function addLoadMoreButton() {
 }
 
 function loadMoreResults() {
-    const endIndex = (currentPage + 1) * RESULTS_PER_PAGE + RESULTS_PER_PAGE;
-    const nextResults = currentResults.slice(0, endIndex);
-    
-    if (nextResults.length > 0) {
-        displayResults(nextResults);
-        currentPage++;
-        
-        if (endIndex < currentResults.length) {
-            addLoadMoreButton();
-        }
-    }
+    currentPage++;
+    displayResults();
 }
 
 function refreshResults() {
-    const endIndex = (currentPage + 1) * RESULTS_PER_PAGE + RESULTS_PER_PAGE;
-    const nextResults = currentResults.slice(0, endIndex);
-    
-    if (nextResults.length > 0) {
-        displayResults(nextResults);
-        
-        if (endIndex < currentResults.length) {
-            addLoadMoreButton();
-        }
-    }
+    displayResults();
 }
 
 function performSearch(query) {
@@ -233,11 +222,8 @@ function performSearch(query) {
     if (!query.trim()) {
         currentResults = chemsData;
         currentPage = 0;
-        displayResults(chemsData.slice(0, RESULTS_PER_PAGE));
-        
-        if (chemsData.length > RESULTS_PER_PAGE) {
-            addLoadMoreButton();
-        }
+        displayResults();
+
         return;
     }
     
@@ -249,11 +235,5 @@ function performSearch(query) {
     const searchResults = fuse.search(query);
     currentResults = searchResults;
     currentPage = 0;
-    
-    const firstPageResults = searchResults.slice(0, RESULTS_PER_PAGE);
-    displayResults(firstPageResults);
-    
-    if (searchResults.length > RESULTS_PER_PAGE) {
-        addLoadMoreButton();
-    }
+    displayResults();
 }

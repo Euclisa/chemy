@@ -30,7 +30,6 @@ class ChemsProperties(ChemsDB):
 
         self.categories_fn = os.path.join(self.data_dir, 'misc', "categories.jsonl")
         self.background_cids_fn = os.path.join(self.data_dir, 'misc', 'background_cids.json')
-        self.commonness_sorted_cids_fn = os.path.join(self.data_dir, 'misc', 'commonness_sorted_cids.json')
         self.cids_blacklist_fn = os.path.join(self.data_dir, 'misc', 'cids_blacklist.jsonl')
         self.cids_filtered_synonyms_fn = os.path.join(self.data_dir, 'misc', 'cids_filtered_synonyms.jsonl')
 

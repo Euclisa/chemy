@@ -45,10 +45,13 @@ class ChemsReactionProperties(ChemsProperties):
             reactions = self._load_jsonl(self.reactions_parsed_fn)
 
         chem_reactions_occurence = dict()
+        for chem in self.chems:
+            chem_reactions_occurence[chem['cid']] = 0
+
         for react in reactions:
             all_cids = self._get_all_reaction_cids(react)
             for cid in all_cids:
-                chem_reactions_occurence[cid] = chem_reactions_occurence.setdefault(cid, 0) + 1
+                chem_reactions_occurence[cid] += 1
         
         return chem_reactions_occurence
     

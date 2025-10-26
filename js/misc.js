@@ -70,3 +70,18 @@ function showLoading(message, showCancel = false) {
 function hideLoading() {
     document.getElementById('loading-overlay').style.display = 'none';
 }
+
+
+function setSortingOrder(sortingOrderList, reverse) {
+    currentResultsSorted = [];
+    currentPage = 0;
+
+    if (reverse) {
+        for (let i = sortingOrderList.length - 1; i >= 0; i--)
+            currentResults.push(cidToCompound.get(sortingOrderList[i]));
+    } else {
+        for (let i = 0; i < sortingOrderList.length; i++)
+            currentResults.push(cidToCompound.get(sortingOrderList[i]));
+    }
+    displayResults();
+}

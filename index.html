@@ -89,8 +89,23 @@
             <div class="catalog-section">
                 <h3>Catalog</h3>
                 <div class="filters-container">
-                    <button class="filter-button filter-button-sort"><strong>Sort</strong><i class="fa fa-sort"></i></button>
-                    <button class="filter-button filter-button-filter"><strong>Filter</strong><i class="fa-solid fa-filter"></i></button>
+                    <div class="filter-dropdown">
+                        <button class="filter-button filter-button-sort" id="catalog-sort-btn">
+                            <strong>Sort</strong>
+                            <i class="fa fa-sort"></i>
+                        </button>
+                        <ul class="filter-menu">
+                            <li data-sort="common-asc"><strong>Commonness</strong><i class="fa-solid fa-sort-up"></i></li>
+                            <li data-sort="common-desc"><strong>Commonness</strong><i class="fa-solid fa-sort-down"></i></li>
+                            <li data-sort="complex-asc"><strong>Complexity</strong><i class="fa-solid fa-sort-up"></i></li>
+                            <li data-sort="complex-desc"><strong>Complexity</strong><i class="fa-solid fa-sort-down"></i></li>
+                            <li data-sort="curious-asc"><strong>Curiosity</strong><i class="fa-solid fa-sort-up"></i></li>
+                            <li data-sort="curious-desc"><strong>Curiosity</strong><i class="fa-solid fa-sort-down"></i></li>
+                        </ul>
+                    </div>
+                    <button class="filter-button filter-button-filter">
+                        <strong>Filter</strong><i class="fa-solid fa-filter"></i>
+                    </button>
                 </div>
                 <div class="results" id="results-container">
                     <div class="loading-indicator">

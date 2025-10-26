@@ -22,7 +22,10 @@ let directedEdges = new Set();
 let backgroundCids;
 let cidToDescription = new Map();
 let ridToDescription = new Map();
-let commonnesSortedCids = []
+let commonnesSortedCids = [];
+let complexitySortedCids = [];
+let curiositySortedCids = [];
+let currentSortingOrder;
 let cidToEdges = new Map();
 let cidToCompoundProperties = new Map();
 let cidToHazards = new Map();
@@ -59,8 +62,14 @@ async function initializeData() {
         reactionsData = await loadData('data/reactions_parsed/reactions_parsed.jsonl');
         backgroundCids = await loadData('data/misc/background_cids.json');
         backgroundCids = new Set(backgroundCids.map(Number));
-        commonnesSortedCids = await loadData('data/misc/commonness_sorted_cids.json');
+
+        commonnesSortedCids = await loadData('data/misc/chems_sortings/commonness_sorted_cids.jsonl');
         commonnesSortedCids = commonnesSortedCids.map(Number);
+        complexitySortedCids = await loadData('data/misc/chems_sortings/complexity_sorted_cids.jsonl');
+        complexitySortedCids = complexitySortedCids.map(Number);
+        curiositySortedCids = await loadData('data/misc/chems_sortings/curiosity_sorted_cids.jsonl');
+        curiositySortedCids = curiositySortedCids.map(Number);
+
         let compoundProperties = await loadData('data/chems_properties/chems_properties.jsonl');
         
         let chemsDescriptionsLoaded = await loadData('data/chems_properties/llm/chems_descriptions.jsonl');
@@ -126,12 +135,11 @@ async function initializeData() {
         };
         
         fuse = new Fuse(chemsData, fuseOptions);
-        
-        chemsData = commonnesSortedCids.map(cid => cidToCompound.get(cid));
+
+        currentResults = chemsData;
+        setSortingOrder(commonnesSortedCids, true);
 
         displayResults(chemsData.slice(0, RESULTS_PER_PAGE));
-        currentResults = chemsData;
-        currentPage = 0;
         
         if (chemsData.length > RESULTS_PER_PAGE) {
             addLoadMoreButton();
