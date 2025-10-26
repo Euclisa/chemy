@@ -1,0 +1,26 @@
+.filters-container {
+    display: flex;
+    justify-content: space-between;
+    margin: 0.1rem;
+}
+
+
+.filter-button {
+    border: 2px solid var(--primary);
+    color: var(--primary);
+    background: var(--panel-bg);
+    border-radius: 0.75rem;
+    font-size: 1rem;
+    padding: 0.5rem;
+}
+
+.filter-button strong {
+    margin-right: 0.5rem
+}
+
+.filter-button:hover {
+    color: var(--panel-bg);
+    background: var(--primary);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}

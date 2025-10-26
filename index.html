@@ -6,13 +6,13 @@
 
 <link
   rel="stylesheet"
-  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+  href="css/fontawesome-all.css"
 />
 
 <link rel="icon" type="image/x-icon" href="data/assets/favicon.ico">
 
-<script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
-<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="js/libs/fuse.min.js"></script>
+<script src="js/libs/d3.v7.min.js"></script>
 
 <title>Chemical Reactions Graph Explorer</title>
 
@@ -27,6 +27,7 @@
 <link rel="stylesheet" href="css/side_panel/main.css">
 <link rel="stylesheet" href="css/side_panel/results.css">
 <link rel="stylesheet" href="css/side_panel/user_input.css">
+<link rel="stylesheet" href="css/side_panel/filters.css">
 
 
 </head>
@@ -87,6 +88,10 @@
 
             <div class="catalog-section">
                 <h3>Catalog</h3>
+                <div class="filters-container">
+                    <button class="filter-button filter-button-sort"><strong>Sort</strong><i class="fa fa-sort"></i></button>
+                    <button class="filter-button filter-button-filter"><strong>Filter</strong><i class="fa-solid fa-filter"></i></button>
+                </div>
                 <div class="results" id="results-container">
                     <div class="loading-indicator">
                         <i class="fa fa-spinner fa-spin"></i> Loading compounds...

@@ -40,7 +40,7 @@
     line-height: 1.6;
 }
 
-button.floating-btn {
+.floating-btn {
     background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
     border: 0;
     border-radius: 1rem;
@@ -55,10 +55,8 @@ button.floating-btn {
     color: var(--black);
 }
 
-button.floating-btn:hover {
+.floating-btn:hover {
     background: linear-gradient(135deg, var(--primary-hover) 0%, var(--secondary) 100%);
-    transform: translateY(-0.1rem);
-    box-shadow: 0.4rem 0.4rem 0.5rem var(--light-black);
 }
 
 .floating-bar {

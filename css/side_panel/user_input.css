@@ -130,7 +130,7 @@
 }
 
 .level.selected {
-    background: linear-gradient(135deg, #f3f0ff 0%, #faf8ff 100%);
+    background: var(--panel-bg);
     border-color: var(--primary);
     box-shadow: 0 2px 8px rgba(184, 168, 217, 0.2);
 }

@@ -191,7 +191,7 @@ function handleSubmit() {
     if (k === 11) k = Infinity;
     const n = parseInt(document.getElementById('n-slider').value);
 
-    showLoading('Computing paths...', true);
+    showLoading('Computing paths...', false);
 
     setTimeout(() => {
         let allPaths = null;

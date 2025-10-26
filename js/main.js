@@ -34,9 +34,7 @@
 
 
     const clear_btn = document.getElementById('floating-btn-clear');
-    clear_btn.addEventListener('click', function() {
-        returnToBlank();
-    });
+    clear_btn.addEventListener('click', returnToBlank);
 })();
 
 (function(){

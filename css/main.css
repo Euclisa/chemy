@@ -84,3 +84,19 @@ html,body{
         grid-template-columns: 1fr;
     }
 }
+
+
+button {
+    transition: all 0.25s ease-in-out;
+    cursor: pointer;
+}
+
+button:hover {
+    transform: translateY(-0.1rem);
+    box-shadow: 0.3rem 0.3rem 0.5rem var(--light-black);
+}
+
+button:active {
+    transform: translateY(-0.1rem);
+    box-shadow: 0.2rem 0.2rem 0.5rem var(--light-black);
+}
