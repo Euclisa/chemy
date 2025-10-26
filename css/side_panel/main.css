@@ -3,7 +3,7 @@
     top: 0;
     left: 0;
     height: 100%;
-    width: 25%;
+    width: var(--side-panel-width);
     background: var(--panel-bg);
     backdrop-filter: blur(10px);
     box-shadow: 0 8px 32px rgba(140, 130, 190, 0.2);
@@ -57,7 +57,7 @@
 }
 
 .app-wrap.open .toggle-stripe{
-    left: calc(25%);
+    left: calc(var(--side-panel-width));
 }
 
 .app-wrap.open .toggle-stripe svg{

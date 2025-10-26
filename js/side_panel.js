@@ -76,7 +76,7 @@ function createPathItem(compound) {
     const itemInfo = createItemInfo(compound);
 
     const removeBtn = document.createElement('button');
-    removeBtn.className = 'remove-item';
+    removeBtn.className = 'compound-item-btn remove-item';
     removeBtn.textContent = 'X';
     removeBtn.addEventListener('click', () => {
         if (selectedLevel === 1) {
@@ -89,7 +89,7 @@ function createPathItem(compound) {
 
     item.appendChild(iconContainer);
     item.appendChild(itemInfo);
-    //item.appendChild(removeBtn);
+    item.appendChild(removeBtn);
 
     item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -131,7 +131,7 @@ function createResultItem(compound) {
     iconContainer.textContent = 'Loading...';
     iconContainer.dataset.cid = `${compound.cid}`;
     iconContainer.addEventListener('click', (e) => {
-        const target = event.currentTarget;
+        const target = e.currentTarget;
         const cid = Number(target.dataset.cid);
         showCompoundInfoPopup(cid);
     });
@@ -139,19 +139,31 @@ function createResultItem(compound) {
     loadStructureSVG(compound.cid, iconContainer);
     
     const itemInfo = createItemInfo(compound);
-    
-    item.appendChild(checkbox);
-    item.appendChild(iconContainer);
-    item.appendChild(itemInfo);
 
-    item.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
+    const addItemToPathList = () => {
         if (selectedLevel === 1) {
             sourceNodes.add(compound.cid);
         } else {
             targetNodes.add(compound.cid);
         }
         renderPathList();
+    };
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'compound-item-btn add-item';
+    addBtn.textContent = '+';
+    addBtn.addEventListener('click', () => {
+        addItemToPathList();
+    });
+    
+    item.appendChild(checkbox);
+    item.appendChild(iconContainer);
+    item.appendChild(itemInfo);
+    item.appendChild(addBtn);
+
+    item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        addItemToPathList();
     });
     
     return item;

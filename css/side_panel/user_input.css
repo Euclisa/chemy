@@ -146,19 +146,35 @@
     cursor: default;
 }
 
-.remove-item {
+.compound-item-btn {
     margin-left: auto;
-    background: var(--accent);
     border: none;
     cursor: pointer;
     padding: 0.35rem 0.75rem;
     border-radius: 0.5rem;
-    font-weight: 500;
-    color: #8b4049;
+    font-weight: 500; 
     transition: all 0.2s;
 }
 
-.remove-item:hover {
-    background: #f0a5af;
+.compound-item-btn:hover {
     transform: scale(1.05);
+}
+
+
+.compound-item-btn.remove-item {
+    background: #f5c6cb;
+    color: #8b4049;
+}
+
+.compound-item-btn.remove-item:hover {
+    background: #f0a5af;
+}
+
+.compound-item-btn.add-item {
+    background: #c6f5ca;
+    color: #498b40;
+}
+
+.compound-item-btn.add-item:hover {
+    background: #a5f0b2;
 }

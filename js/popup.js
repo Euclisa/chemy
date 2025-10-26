@@ -28,9 +28,7 @@ function showPopup(type, data) {
         html += `<img src="data/structures/${cid}.svg" alt="${compound.cmpdname}" onerror="this.style.display='none'">`;
         html += '</div>';
 
-        console.log(cidToHazards.get(cid));
         if (cidToHazards.has(cid)) {
-            console.log("lul")
             const compoundHazards = cidToHazards.get(cid);
             html += '<div class="compound-hazards">'
             if (compoundHazards.nfpa) {
@@ -166,7 +164,6 @@ function showPopup(type, data) {
             const reaction = RIDToReaction.get(rid);
             if (reaction) {
                 const balanced = reaction.balanced;
-                console.log(balanced)
                 item_html += '<div class="reaction-item">';
                 item_html += `<div class="reaction-equation">`;
                 item_html += generateReactionParticipants(reaction.reagents, balanced);

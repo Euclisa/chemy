@@ -51,8 +51,8 @@ button.floating-btn {
     inline-size: 3rem;
     align-items: center;
     justify-content: center;
-    aspect-ratio: 1 / 1;
     cursor: pointer;
+    color: var(--black);
 }
 
 button.floating-btn:hover {
@@ -69,6 +69,7 @@ button.floating-btn:hover {
     align-items: center;
     gap: 1rem;
     margin: 1rem;
+    z-index: 2;
 }
 
 .floating-bar.bottom-floating-bar {
