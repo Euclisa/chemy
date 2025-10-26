@@ -1,20 +1,39 @@
 .compound-info {
-    background: #faf8ff;
+    background-color: #f7f4ff;
     border-radius: 0.75rem;
-    padding: 1rem;
+    padding: 0.1rem 1rem;
     margin-bottom: 1rem;
+}
+
+.compound-info.compound-info-general {
+    background-color: white;
+    padding: 0;
 }
 
 .compound-info-row {
     display: flex;
     justify-content: space-between;
-    padding: 0.5rem 0;
+    padding: 0.5rem 1rem;
     border-bottom: 1px solid #f3f0ff;
     font-size: 0.85rem;
 }
 
-.compound-info-row:last-child {
+.compound-info-row:nth-child(even) {
+    background-color: #f7f4ff;
+}
+
+.compound-info-row:nth-child(odd) {
+    background-color: #f2e8ff;
+}
+
+.compound-info-row:first-of-type {
+    margin-top: 1rem;
+    border-radius: 0.75rem 0.75rem 0 0;
+}
+
+.compound-info-row:last-of-type {
     border-bottom: none;
+    border-radius: 0 0 0.75rem 0.75rem;
 }
 
 .compound-info-label {
@@ -23,8 +42,11 @@
     font-size: 0.85rem;
 }
 
-.compound-info-label.description {
+.compound-info-title {
+    font-weight: 600;
+    color: var(--text-secondary);
     font-size: 1.2rem;
+    margin-bottom: 3rem;
 }
 
 .compound-info-value {

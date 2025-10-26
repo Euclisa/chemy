@@ -73,7 +73,7 @@ function hideLoading() {
 
 
 function setSortingOrder(sortingOrderList, reverse) {
-    currentResultsSorted = [];
+    currentResults = [];
     currentPage = 0;
 
     if (reverse) {

@@ -81,7 +81,7 @@ function showPopup(type, data) {
             html += '</div>';
         }
 
-        html += '<div class="compound-info">';
+        html += '<div class="compound-info compound-info-general">';
         for (const entry of compoundProperties) {
             const label = entry.property;
             const value = entry.value.split('\n').join('<br>');
@@ -101,8 +101,7 @@ function showPopup(type, data) {
         
         const description = cidToDescription.get(cid);
         if (description) {
-            html += '<div class="compound-info">';
-            html += '<span class="compound-info-label description">Description:</span>';
+            html += '<div class="compound-info compound-info-description">';
             const description_html = '<p>' + description.split('\n\n').join('</p><p>') + '</p>';
             html += `<span class="compound-info-value description">${description_html}</span>`;
             html += '</div>';
