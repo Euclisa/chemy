@@ -221,12 +221,12 @@ class ChemsFetchPubchem(ChemsProperties):
     def extract_pubchem_dump_to_chems(self, dump_fn, override=False):
         fields_to_keep = ['cid', 'cmpdname', 'cmpdsynonym', 'mf', 'mw', 'complexity', 'smiles', 'inchi', 'inchikey', 'charge', 'annotation', 'iupacname']
         curr_chem = None
-        i = 0
         total_incoming = 0
         unique_inchikeys_chems = dict() if override else self._process_chems()
         initial_chems_num = len(unique_inchikeys_chems)
         with open(dump_fn) as f_in:
-            for line in f_in:
+            total = self._count_file_lines(dump_fn)
+            for line in self._rich_track(f_in, "Parsing pubchem dump", total=total):
                 for field in fields_to_keep:
                     if f'"{field}":' in line:
                         if field == 'cid':
@@ -240,11 +240,7 @@ class ChemsFetchPubchem(ChemsProperties):
                                     if not isinstance(curr_chem['cmpdsynonym'], list):
                                         curr_chem['cmpdsynonym'] = [curr_chem['cmpdsynonym']]
 
-                                    self.__process_chem_single(curr_chem, unique_inchikeys_chems, force=True)
-
-                                    i += 1
-                                    if i % 1000 == 0:
-                                        print(i)
+                                    self._process_chem_single(curr_chem, unique_inchikeys_chems, force=True)
 
                             curr_chem = dict()
                         curr_chem[field] = json.loads('{' + line.strip().strip(',') + '}')[field]
@@ -253,3 +249,8 @@ class ChemsFetchPubchem(ChemsProperties):
         self._update_chems(unique_chems)
 
         print(f"Initial chems num: {initial_chems_num}; Incoming chems processed: {total_incoming}; Total written: {len(unique_chems)}")
+
+
+if __name__ == "__main__":
+    chems = ChemsFetchPubchem('data/')
+    chems.extract_pubchem_dump_to_chems('pubchem_big.json')

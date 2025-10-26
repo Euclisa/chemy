@@ -21,7 +21,6 @@ class ChemsReactionProperties(ChemsProperties):
 
         self.unmapped_names_fn = os.path.join(self.data_dir, "unmapped_names.jsonl")
         self.chem_names_blacklisted_fn = os.path.join(self.data_dir, "unmapped_names_blacklisted.txt")
-        self.unmapped_smiles_fn = os.path.join(self.data_dir, 'unmapped_smiles.jsonl')
         self.chem_smiles_blacklisted_fn = os.path.join(self.data_dir, 'unmapped_smiles_blacklisted.txt')
 
         self._file_sorting_prefs[self.reactions_parsed_fn] = 'rid'
@@ -31,7 +30,6 @@ class ChemsReactionProperties(ChemsProperties):
         self._file_sorting_prefs[self.reactions_details_fn] = 'rid'
 
         self._file_sorting_prefs[self.unmapped_names_fn] = ('count', True)
-        self._file_sorting_prefs[self.unmapped_smiles_fn] = ('count', True)
 
         self.sources_priority = dict()
     

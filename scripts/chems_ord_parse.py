@@ -24,8 +24,10 @@ class ChemsOrdParse(ChemsReactionProperties):
         self.ord_source = "ord"
 
         self.reactions_details_ord_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details_ord.jsonl')
+        self.unmapped_smiles_fn = os.path.join(self.data_dir, 'unmapped_smiles.jsonl')
 
         self._file_sorting_prefs[self.reactions_details_ord_fn] = 'rid'
+        self._file_sorting_prefs[self.unmapped_smiles_fn] = ('count', True)
 
         self.sources_priority[self.ord_source] = 10
     
@@ -328,6 +330,8 @@ class ChemsOrdParse(ChemsReactionProperties):
         with open(ord_reactions_fn) as f_in:
             total = self._count_file_lines(ord_reactions_fn)
             for line in self._rich_track(f_in, "Parsing ORD reactions", total=total):
+                overall_count += 1
+
                 reaction = json.loads(line)
                 parse_success = True
 
@@ -340,9 +344,13 @@ class ChemsOrdParse(ChemsReactionProperties):
                     inchikey = inchi.MolToInchiKey(mol, options="/SNon")
                     cid = self.inchikey_cid_map.get(inchikey)
                     smiles = Chem.MolToSmiles(mol, canonical=True)
+                    name = substance.get('name')
+                    norm_name = None if name is None else self._normalize_chem_name(name, is_clean=True)
                     if not cid:
                         if smiles in self.smiles_cid_map:
                             cid = self.smiles_cid_map[smiles]
+                        elif norm_name is not None and norm_name in self.name_cid_map:
+                            cid = self.name_cid_map[norm_name]
                         else:
                             unmapped_smiles[smiles] = unmapped_smiles.setdefault(smiles, 0) + 1
                             if smiles_name_map.get(smiles) is None:
@@ -356,6 +364,10 @@ class ChemsOrdParse(ChemsReactionProperties):
                     norm_name = self._normalize_chem_name(name)
 
                     target_list.append({'norm_name': norm_name, 'original_name': name, 'cid': cid})
+                
+
+                if reaction["description"] is None or len(reaction["description"]) < 80:
+                    continue
 
                 parsed_reaction = dict()
 
@@ -397,10 +409,7 @@ class ChemsOrdParse(ChemsReactionProperties):
                     else:
                         entry[part] = []
 
-                overall_count += 1
                 if parse_success:
-                    if parsed_details["description"] is None or len(parsed_details["description"]) < 80:
-                        continue
 
                     deduplicate_part(parsed_details, 'solvents')
                     deduplicate_part(parsed_details, 'catalysts')
@@ -459,4 +468,4 @@ if __name__ == "__main__":
     #ord.extract_ord_reactions("out.jsonl")
     #ord.split_ord_file("out.jsonl", "ord/")
     #ord.sample_ord("ord/ord_0.jsonl", 5, "samples.json")
-    ord.parse_raw_ord_reactions('cleaned_ord.jsonl')
+    ord.parse_raw_ord_reactions('cleaned_ord.jsonl', balance=False)

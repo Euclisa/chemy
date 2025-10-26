@@ -163,7 +163,8 @@ class ChemsProperties(ChemsDB):
             for item in iterator:
                 yield item
                 progress.update(task, advance=1)
-                progress.refresh()
+                if not auto_refresh:
+                    progress.refresh()
     
 
     def _rich_progress(self, transient=False, auto_refresh=True):
@@ -296,10 +297,7 @@ class ChemsProperties(ChemsDB):
                 r'[a-z]{14}-[a-z]{10}-[a-z]',
                 r'\s{2,}',
                 r'\b[nm]m\b',
-                r'-,'
-            ]
-
-            DISCARD_PATTERNS_IGNORECASE = [
+                r'-,',
                 r'\bpowder\b',
                 r'\bbeads\b',
                 r'\bimpurity\b',
@@ -308,8 +306,7 @@ class ChemsProperties(ChemsDB):
             ]
 
             name = name.lower()
-            if any(re.search(p, name) for p in DISCARD_PATTERNS) or any(
-                    re.search(p, name, flags=re.IGNORECASE) for p in DISCARD_PATTERNS_IGNORECASE):
+            if any(re.search(p, name) for p in DISCARD_PATTERNS):
                 return False
             # UNII identifiers
             if re.fullmatch(r'[a-z0-9]{10}', name) and re.search(r'[abdefgijklmqrtuvwxyz]', name) and re.search(r'\d', name):
@@ -363,10 +360,28 @@ class ChemsProperties(ChemsDB):
         chem['cmpdsynonym'] = synonyms[:self.max_synonyms_thr]
 
         return True
+
+
+    def __merge_synonyms(self, chem1, chem2):
+        result_synonyms = dict()
+        synonyms1 = chem1['cmpdsynonym']
+        synonyms2 = chem2['cmpdsynonym']
     
+        if len(synonyms1) > len(synonyms2):
+            synonyms1, synonyms2 = synonyms2, synonyms1
+
+        for i in range(len(synonyms1)):
+            result_synonyms[synonyms1[i]] = 0
+            result_synonyms[synonyms2[i]] = 0
+        
+        for i in range(len(synonyms1), len(synonyms2)):
+            result_synonyms[synonyms2[i]] = 0
+        
+        return list(dict.fromkeys(result_synonyms))
 
 
-    def __process_chem_single(self, chem, unique_inchikeys_chems, force):
+
+    def _process_chem_single(self, chem, unique_inchikeys_chems, force):
         cid = chem['cid']
 
         try:
@@ -382,11 +397,10 @@ class ChemsProperties(ChemsDB):
             if '/i' in chem['inchi']:
                 return False
 
-            try:
-                mol = Chem.MolFromSmiles(chem['smiles'])
-                chem['smiles'] = Chem.MolToSmiles(mol, canonical=True)
-            except Exception:
+            mol = Chem.MolFromSmiles(chem['smiles'])
+            if mol is None:
                 return False
+            chem['smiles'] = Chem.MolToSmiles(mol, canonical=True)
 
             # Don't use 'force' since we remove CAS numbers from synonyms anyway
             if 'cas' not in chem:
@@ -410,8 +424,8 @@ class ChemsProperties(ChemsDB):
 
                 # Check for water molecules
                 water_pattern = re.compile(r'^(\d*)H2O$', re.IGNORECASE)
-                for mol in molecules:
-                    if water_pattern.match(mol):
+                for mol_str in molecules:
+                    if water_pattern.match(mol_str):
                         return True
 
                 return False
@@ -444,20 +458,23 @@ class ChemsProperties(ChemsDB):
                 old_inchi = old_chem['inchi']
                 curr_inchi = chem['inchi']
                 if len(curr_inchi) < len(old_inchi):
+                    chem['cmpdsynonym'] = self.__merge_synonyms(chem, old_chem)
                     unique_inchikeys_chems[inchikey] = chem
+                else:
+                    old_chem['cmpdsynonym'] = self.__merge_synonyms(chem, old_chem)
             else:
                 unique_inchikeys_chems[inchikey] = chem
 
             return True
 
         except Exception as e:
-            self.log(f"Exception during processing compound with CID {cid}: {e}")
+            self.log_warn(f"Exception during processing compound with CID {cid}: {e}")
             return False
 
     def _process_chems(self, force=False):
         __unique_inchikeys_chems = dict()
-        for chem in self.chems:
-            self.__process_chem_single(chem, __unique_inchikeys_chems, force=force)
+        for chem in self._rich_track(self.chems, "Processing compounds"):
+            self._process_chem_single(chem, __unique_inchikeys_chems, force=force)
 
         return __unique_inchikeys_chems
 
