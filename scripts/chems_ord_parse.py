@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from rich.progress import track
 
@@ -337,27 +338,55 @@ class ChemsOrdParse(ChemsReactionProperties):
 
                 def process_substance(substance, target_list):
                     nonlocal parse_success
+
+                    def process_smiles(smiles):
+                        parts = smiles.split('.')
+                        if len(parts) < 2:
+                            return smiles
+                        
+                        filtered = []
+                        for s in parts:
+                            m = Chem.MolFromSmiles(s)
+                            if m is None:
+                                filtered.append(s)
+                                continue
+                            formula = Chem.rdMolDescriptors.CalcMolFormula(m)
+                            if formula not in ('H2O', 'HOH', 'O'):  # handle hydrate water
+                                filtered.append(s)
+                        return '.'.join(filtered)
                     
-                    mol = Chem.MolFromSmiles(substance['smiles'])
+                    smiles = process_smiles(substance['smiles'])
+                    mol = Chem.MolFromSmiles(smiles)
                     if not mol:
                         return None
-                    inchikey = inchi.MolToInchiKey(mol, options="/SNon")
-                    cid = self.inchikey_cid_map.get(inchikey)
-                    smiles = Chem.MolToSmiles(mol, canonical=True)
-                    name = substance.get('name')
-                    norm_name = None if name is None else self._normalize_chem_name(name, is_clean=True)
-                    if not cid:
-                        if smiles in self.smiles_cid_map:
-                            cid = self.smiles_cid_map[smiles]
-                        elif norm_name is not None and norm_name in self.name_cid_map:
-                            cid = self.name_cid_map[norm_name]
-                        else:
-                            unmapped_smiles[smiles] = unmapped_smiles.setdefault(smiles, 0) + 1
-                            if smiles_name_map.get(smiles) is None:
-                                smiles_name_map[smiles] = substance.get('name', None)
 
-                            parse_success = False
+                    smiles = Chem.MolToSmiles(mol, canonical=True)
+                    inchikey = inchi.MolToInchiKey(mol, options="/SNon")
+
+
+                    def process_name(name):
+                        if not name:
                             return None
+
+                        name = re.sub(r'\s*(mono|di|tri|tetra|penta|hexa|hepta|octa|nona|deca)?hydrate$', '', name, flags=re.IGNORECASE)
+                        name = name.strip()
+                        return self._normalize_chem_name(name, is_clean=True)
+
+                    norm_name = process_name(substance.get('name'))
+
+                    if inchikey in self.inchikey_cid_map:
+                        cid = self.inchikey_cid_map.get(inchikey)
+                    elif smiles in self.smiles_cid_map:
+                        cid = self.smiles_cid_map[smiles]
+                    elif norm_name is not None and norm_name in self.name_cid_map:
+                        cid = self.name_cid_map[norm_name]
+                    else:
+                        unmapped_smiles[smiles] = unmapped_smiles.setdefault(smiles, 0) + 1
+                        if smiles_name_map.get(smiles) is None and norm_name and not re.search(r'(product|compound)', norm_name):
+                            smiles_name_map[smiles] = substance.get('name', None)
+
+                        parse_success = False
+                        return None
 
                     chem = self.cid_chem_map[cid]
                     name = chem['cmpdname']
@@ -441,7 +470,7 @@ class ChemsOrdParse(ChemsReactionProperties):
         self._write_jsonl(parsed_reactions_list, self.reactions_parsed_ord_fn)
         self._write_jsonl(parsed_details_list, self.reactions_details_ord_fn)
         
-        unmapped_smiles_list = [{'smiles': x, 'name': smiles_name_map[x],'count': unmapped_smiles[x]} for x in unmapped_smiles]
+        unmapped_smiles_list = [{'smiles': x, 'name': smiles_name_map.get(x),'count': unmapped_smiles[x]} for x in unmapped_smiles]
         self._write_jsonl(unmapped_smiles_list, self.unmapped_smiles_fn)
         
         self.log(f"Unmapped smiles: {len(unmapped_smiles)}")
