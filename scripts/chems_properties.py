@@ -1,10 +1,11 @@
 import json
 import re
-import shutil
+import glob
 import os
+import shutil
 
 from rdkit import Chem, RDLogger
-from rdkit.Chem import AllChem, GraphDescriptors, inchi
+from rdkit.Chem import AllChem, GraphDescriptors, inchi, rdMolDescriptors, Descriptors
 
 from functools import cached_property
 import inspect
@@ -23,7 +24,13 @@ class ChemsProperties(ChemsDB):
     def __init__(self, data_dir):
         super().__init__(data_dir)
 
-        self.chems_fn = os.path.join(self.data_dir, 'chems', "chems.jsonl")
+        self.chems_dir = os.path.join(self.data_dir, 'chems')
+        self.chems_mapped_fn = os.path.join(self.chems_dir, 'mapped')
+        self.chems_unmapped_fn = os.path.join(self.chems_dir, 'unmapped')
+
+        os.makedirs(self.chems_mapped_fn, exist_ok=True)
+        os.makedirs(self.chems_unmapped_fn, exist_ok=True)
+
         self.chems_wiki_fn = os.path.join(self.data_dir, 'chems', "chems_wiki.jsonl")
         self.chems_edges_fn = os.path.join(self.data_dir, 'chems', 'chems_edges.jsonl')
         self.elements_fn = os.path.join(self.data_dir, 'chems', 'elements.jsonl')
@@ -38,7 +45,9 @@ class ChemsProperties(ChemsDB):
 
         self.chems_categories_fn = os.path.join(self.chems_properties_dir, "chems_categories.jsonl")
 
-        self._file_sorting_prefs[self.chems_fn] = 'complexity'
+        self._file_sorting_prefs[self.chems_mapped_fn] = 'complexity'
+        self._file_sorting_prefs[self.chems_unmapped_fn] = 'cid'
+        
         self._file_sorting_prefs[self.chems_categories_fn] = 'cid'
         self._file_sorting_prefs[self.chems_wiki_fn] = 'cid'
         self._file_sorting_prefs[self.chems_edges_fn] = 'eid'
@@ -48,15 +57,23 @@ class ChemsProperties(ChemsDB):
         self._file_sorting_prefs[self.cids_blacklist_fn] = 'cid'
         self._file_sorting_prefs[self.cids_filtered_synonyms_fn] = 'cid'
 
-        self.complexity_thr = 550
+        self._dir_vault_prefs[self.chems_mapped_fn] = 'chems_'
+        self._dir_vault_prefs[self.chems_unmapped_fn] = 'chems_'
+
+        self.complexity_thr = 700
+        self.bertz_complexity_thr = 1000
         self.max_synonyms_thr = 150
+
+        self.unknown_name_ph = "<Unknown>"
 
         self.CAS_PATTERN = r'\d{2,7}-\d{2}-\d'
     
 
     @cached_property
     def chems(self):
-        return self._load_jsonl(self.chems_fn)
+        mapped = self._load_jsonl(self.chems_mapped_fn)
+        unmapped = self._load_jsonl(self.chems_unmapped_fn)
+        return mapped + unmapped
     
     @cached_property
     def cids_blacklist(self):
@@ -123,10 +140,17 @@ class ChemsProperties(ChemsDB):
             if isinstance(attr, cached_property) and name in self.__dict__:
                 delattr(self, name)
 
+
     def _update_chems(self, new_chems):
-        new_chems.sort(key=lambda x: x['complexity'])
-        self._write_jsonl(new_chems, self.chems_fn)
+
+        mapped_chems = [chem for chem in new_chems if chem.get('cid', 0) > 0]
+        self._write_jsonl(mapped_chems, self.chems_mapped_fn)
+
+        unmapped_chems = [chem for chem in new_chems if chem.get('cid', 0) < 0]
+        self._write_jsonl(unmapped_chems, self.chems_unmapped_fn)
+
         self.__clear_runtime_chems_properties()
+
 
     def _update_cids_blacklist(self, cids):
         cids = set(cids)
@@ -202,8 +226,6 @@ class ChemsProperties(ChemsDB):
     
 
     def extract_chems_cas_numbers(self):
-        shutil.copy(self.chems_fn, f"{self.chems_fn}.backup")
-        
         cnt = 0
         for chem in self.chems:
             cas_numbers = self._extract_chem_cas_numbers(chem)
@@ -274,47 +296,75 @@ class ChemsProperties(ChemsDB):
             chem['organic'] = self._get_mol_organic_mark(mol)
 
         self._update_chems(self.chems)
+    
+
+    def _good_name_criteria(self, name: str):
+        if not name:
+            return False
+        
+        if name == self.unknown_name_ph:
+            return True
+        
+        name = name.strip()
+        
+        DISCARD_WORDS_PART = [
+            'oil', 'solid', 'liquid', 'dry', 'powder', 'nanopowder',
+            'beads', 'impurity', 'grade', 'intermediate', 'title', 'desired',
+            'material', 'solution', 'syrup', 'crystals', 'residue', 'compound',
+            'product', 'titled'
+        ]
+
+        discard_word_part_pattern = '(' + '|'.join([r"\b"+word+r"\b" for word in DISCARD_WORDS_PART]) + ')'
+
+        DISCARD_WORDS_WHOLE = [
+            'acetate', 'acid', 'salt', 'phosphonate', 'ester'
+        ]
+
+        discard_word_whole_pattern = '(' + '|'.join([r"^"+word+r"$" for word in DISCARD_WORDS_WHOLE]) + ')'
+
+        DISCARD_PATTERNS = [
+            r'[:=%<>@/\\_.#&*";?!]',
+            r'[-,.]$',
+            self.CAS_PATTERN,
+            r'unii-',
+            r'\(\d:\d\)',
+            r'\d{3,}',
+            r'[a-z]{14}-[a-z]{10}-[a-z]',
+            r'\s{2,}',
+            r'\b[nm]m\b',
+            r'-,',
+            r'^\d+$',
+            r'^[a-z]?[0-9-()\s]+[a-z]?$',
+            discard_word_part_pattern,
+            discard_word_whole_pattern
+        ]
+
+        name = name.lower()
+        if any(re.search(p, name) for p in DISCARD_PATTERNS):
+            return False
+        # UNII identifiers
+        if re.fullmatch(r'[a-z0-9]{10}', name) and re.search(r'[abdefgijklmqrtuvwxyz]', name) and re.search(r'\d', name):
+            return False
+
+        return True
 
     def __process_chem_synonyms(self, chem):
-
-        filtered_synonyms = self.cids_filtered_synonyms.get(chem['cid'], set())
 
         def good_name_criteria(name):
             if not name:
                 return False
 
+            filtered_synonyms = self.cids_filtered_synonyms.get(chem['cid'], set())
             norm_name = self._normalize_chem_name(name, is_clean=True)
             if norm_name in filtered_synonyms:
                 return False
-
-            DISCARD_PATTERNS = [
-                r'[:=%<>@/\\_.#&*";]',
-                r'[-,.]$',
-                self.CAS_PATTERN,
-                r'unii-',
-                r'\(\d:\d\)',
-                r'\d{3,}',
-                r'[a-z]{14}-[a-z]{10}-[a-z]',
-                r'\s{2,}',
-                r'\b[nm]m\b',
-                r'-,',
-                r'\bpowder\b',
-                r'\bbeads\b',
-                r'\bimpurity\b',
-                r'\bgrade\b',
-                r'\bdry\b'
-            ]
-
-            name = name.lower()
-            if any(re.search(p, name) for p in DISCARD_PATTERNS):
-                return False
-            # UNII identifiers
-            if re.fullmatch(r'[a-z0-9]{10}', name) and re.search(r'[abdefgijklmqrtuvwxyz]', name) and re.search(r'\d', name):
-                return False
-
-            return True
+            
+            return self._good_name_criteria(name)
 
         def clean_synonym(name):
+
+            if name == self.unknown_name_ph:
+                return name
 
             name = name.strip()
 
@@ -362,7 +412,7 @@ class ChemsProperties(ChemsDB):
         return True
 
 
-    def __merge_synonyms(self, chem1, chem2):
+    def _merge_synonyms(self, chem1, chem2):
         result_synonyms = dict()
         synonyms1 = chem1['cmpdsynonym']
         synonyms2 = chem2['cmpdsynonym']
@@ -385,13 +435,19 @@ class ChemsProperties(ChemsDB):
         cid = chem['cid']
 
         try:
+            if cid < 0:
+                for entry in unique_inchikeys_chems.values():
+                    if cid == entry['cid']:
+                        self.log_err(f"Compound with CID {cid} already exists")
+                        return False
+
             if chem['charge'] != 0:
                 return False
 
             if cid in self.cids_blacklist:
                 return False
 
-            if chem['complexity'] > self.complexity_thr:
+            if cid > 0 and chem['complexity'] > self.complexity_thr:
                 return False
 
             if '/i' in chem['inchi']:
@@ -409,8 +465,9 @@ class ChemsProperties(ChemsDB):
             if 'iupacname' not in chem:
                 chem['iupacname'] = None
 
-            if not self.__process_chem_synonyms(chem):
-                return False
+            if cid > 0:
+                if not self.__process_chem_synonyms(chem):
+                    return False
 
             def is_hydrate_inchi(inchi: str) -> bool:
                 try:
@@ -430,15 +487,19 @@ class ChemsProperties(ChemsDB):
 
                 return False
 
-            # Filter hydrates (two checks for reliability)
-            if is_hydrate_inchi(chem['inchi']) and 'hydrate' in chem['cmpdname']:
-                return False
+            if cid > 0:
+                # Filter hydrates (two checks for reliability)
+                if is_hydrate_inchi(chem['inchi']) and 'hydrate' in chem['cmpdname']:
+                    return False
 
             if 'ECFP4_fp' not in chem or force:
                 chem['ECFP4_fp'] = self._get_mol_fingerprint(mol)
 
             if 'bertz_complexity' not in chem or force:
                 chem['bertz_complexity'] = self._get_mol_bertz_complexity(mol)
+            
+            if cid < 0 and chem['bertz_complexity'] > self.bertz_complexity_thr:
+                return False
 
             if 'organic' not in chem or force:
                 chem['organic'] = self._get_mol_organic_mark(mol)
@@ -452,16 +513,23 @@ class ChemsProperties(ChemsDB):
             if 'inchikey_snone' not in chem or force:
                 chem['inchikey_snone'] = inchi.MolToInchiKey(mol, options="/SNon")
 
+            if not chem['inchi_snone'] or not chem['inchikey_snone']:
+                return False
+
             inchikey = chem['inchikey_snone']
             if inchikey in unique_inchikeys_chems:
                 old_chem = unique_inchikeys_chems[inchikey]
-                old_inchi = old_chem['inchi']
-                curr_inchi = chem['inchi']
-                if len(curr_inchi) < len(old_inchi):
-                    chem['cmpdsynonym'] = self.__merge_synonyms(chem, old_chem)
-                    unique_inchikeys_chems[inchikey] = chem
-                else:
-                    old_chem['cmpdsynonym'] = self.__merge_synonyms(chem, old_chem)
+
+                if chem['cid'] > 0 or old_chem['cid'] < 0:
+                    old_inchi = old_chem['inchi']
+                    curr_inchi = chem['inchi']
+
+                    if old_chem['cid'] < 0 or len(curr_inchi) < len(old_inchi):
+                        if len(curr_inchi) < len(old_inchi):
+                            chem['cmpdsynonym'] = self._merge_synonyms(chem, old_chem)
+                        unique_inchikeys_chems[inchikey] = chem
+                    else:
+                        old_chem['cmpdsynonym'] = self._merge_synonyms(chem, old_chem)
             else:
                 unique_inchikeys_chems[inchikey] = chem
 
@@ -472,15 +540,31 @@ class ChemsProperties(ChemsDB):
             return False
 
     def _process_chems(self, force=False):
-        __unique_inchikeys_chems = dict()
+        unique_inchikeys_chems = dict()
         for chem in self._rich_track(self.chems, "Processing compounds"):
-            self._process_chem_single(chem, __unique_inchikeys_chems, force=force)
+            self._process_chem_single(chem, unique_inchikeys_chems, force=force)
 
-        return __unique_inchikeys_chems
+        return unique_inchikeys_chems
+    
+
+    def _get_unique_inchikeys_chems(self, organize=False):
+        if organize:
+            return self._process_chems()
+        else:
+            unique_inchikeys_chems = dict()
+            for chem in self.chems:
+                inchikey = chem['inchikey_snone']
+                if not inchikey:
+                    raise Exception(f"Invalid InChI-key found in main compounds file. Run with 'organize=True'")
+                if inchikey in unique_inchikeys_chems:
+                    raise Exception(f"Duplicates found in main compounds file. Run with 'organize=True'")
+                unique_inchikeys_chems[inchikey] = chem
+
+            return unique_inchikeys_chems
+
+
 
     def organize_chems_file(self, force=False):
-        shutil.copy(self.chems_fn, f"{self.chems_fn}.backup")
-
         initial_chems_num = len(self.chems)
 
         unique_chems = list(self._process_chems(force=force).values())
@@ -519,6 +603,9 @@ class ChemsProperties(ChemsDB):
         return chem_name
 
     def _normalize_chem_name(self, chem_name_raw, is_clean=False):
+        if chem_name_raw == self.unknown_name_ph:
+            return chem_name_raw
+
         chem_name = self._clean_chem_name(chem_name_raw, is_clean=is_clean)
         chem_name = chem_name.lower()
         chem_name = chem_name.strip()
@@ -549,8 +636,70 @@ class ChemsProperties(ChemsDB):
         chem_name = re.sub(r'\s+', '', chem_name)
 
         return chem_name
+    
+
+    def __build_basic_chem(self, cid, name, smiles):
+        if not name:
+            name = "<Unknown>"
+        
+        if cid >= 0:
+            raise ValueError(f"Invalid CID: {cid}")
+
+        chem = dict()
+        chem['cid'] = cid
+        chem['cmpdname'] = name
+
+        try:
+            mol = Chem.MolFromSmiles(smiles)
+            inchi = Chem.MolToInchi(mol)
+            if not inchi:
+                raise Exception("Failed to obtain inchi")
+            inchikey = Chem.InchiToInchiKey(inchi)
+            if not inchikey:
+                raise Exception("Failed to obtain inchikey")
+            mf = rdMolDescriptors.CalcMolFormula(mol)
+            mw = Descriptors.MolWt(mol)
+            charge = Chem.GetFormalCharge(mol)
+            
+        except Exception as e:
+            self.log_warn(f"Failed process smiles '{smiles}': {e}")
+            return None
+        
+        chem['smiles'] = smiles
+        chem['inchi'] = inchi
+        chem['inchikey'] = inchikey
+        chem['mf'] = mf
+        chem['mw'] = mw
+        chem['complexity'] = None
+        chem['charge'] = charge
+        chem['cmpdsynonym'] = [name]
+
+        return chem
+
+
+    
+
+    def _add_new_chems(self, name_smiles):
+        unique_inchikeys_chems = self._get_unique_inchikeys_chems()
+        init_chems_num = len(unique_inchikeys_chems)
+        
+        occupied_cids = [chem['cid'] for chem in unique_inchikeys_chems.values() if chem['cid'] < 0]
+
+        free_cid = min(occupied_cids)-1 if occupied_cids else -1
+        for name, smiles in self._rich_track(name_smiles, "Adding compounds"):
+            chem = self.__build_basic_chem(free_cid, name, smiles)
+            if chem:
+                status = self._process_chem_single(chem, unique_inchikeys_chems, force=False)
+                if status:
+                    free_cid -= 1
+
+        self._update_chems(list(unique_inchikeys_chems.values()))
+
+        result_chems_num = len(unique_inchikeys_chems)
+        self.log(f"Processed {len(name_smiles)} entries; added {result_chems_num-init_chems_num} new compounds")
+
 
 
 if __name__ == "__main__":
     parse = ChemsProperties('data/')
-    parse.organize_chems_file()
+    parse.test()

@@ -12,20 +12,19 @@ class ChemsReactionProperties(ChemsProperties):
     def __init__(self, data_dir):
         super().__init__(data_dir)
 
+        self.parsed_reactions_dir = os.path.join(self.data_dir, 'reactions_parsed')
+        self.reactions_details_dir = os.path.join(self.data_dir, 'reactions_details')
+
         self.reactions_parsed_fn = os.path.join(self.data_dir, 'reactions_parsed', "reactions_parsed.jsonl")
-        self.reactions_parsed_llm_fn = os.path.join(self.data_dir, 'reactions_parsed', "reactions_parsed_llm.jsonl")
-        self.reactions_parsed_ord_fn = os.path.join(self.data_dir, 'reactions_parsed', 'reactions_parsed_ord.jsonl')
         self.reactions_parsed_fixed_fn = os.path.join(self.data_dir, 'reactions_parsed', 'reactions_parsed_fixed.jsonl')
 
-        self.reactions_details_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details.jsonl')
+        self.reactions_details_fn = os.path.join(self.reactions_details_dir, 'reactions_details.jsonl')
 
         self.unmapped_names_fn = os.path.join(self.data_dir, "unmapped_names.jsonl")
         self.chem_names_blacklisted_fn = os.path.join(self.data_dir, "unmapped_names_blacklisted.txt")
         self.chem_smiles_blacklisted_fn = os.path.join(self.data_dir, 'unmapped_smiles_blacklisted.txt')
 
         self._file_sorting_prefs[self.reactions_parsed_fn] = 'rid'
-        self._file_sorting_prefs[self.reactions_parsed_llm_fn] = 'rid'
-        self._file_sorting_prefs[self.reactions_parsed_ord_fn] = 'rid'
 
         self._file_sorting_prefs[self.reactions_details_fn] = 'rid'
 
@@ -35,7 +34,24 @@ class ChemsReactionProperties(ChemsProperties):
     
 
     def _get_all_reaction_cids(self, reaction):
-        return list(set(entry['cid'] for entry in reaction['reagents']+reaction['products']))
+        return list(entry['cid'] for entry in reaction['reagents']+reaction['products'])
+    
+
+    def _get_part_cids(self, part):
+        return [entry['cid'] for entry in part]
+    
+
+    def _validate_reaction(self, reaction):
+        all_cids = self._get_all_reaction_cids(reaction)
+
+        if len(all_cids) != len(set(all_cids)):
+            return False
+        
+        reagents_cids, products_cids = self._get_part_cids(reaction['reagents']), self._get_part_cids(reaction['products'])
+        if not reagents_cids or not products_cids:
+            return False
+
+        return True
 
 
     def _get_chems_reactions_occurence(self, reactions=None):
@@ -140,11 +156,8 @@ class ChemsReactionProperties(ChemsProperties):
 
     def _get_reaction_complexity(self, reaction):
         av_complexity = 0
-        for chem in reaction['products']:
-            av_complexity += self.cid_chem_map[chem['cid']]['complexity']
-        
-        for chem in reaction['reagents']:
-            av_complexity += self.cid_chem_map[chem['cid']]['complexity']
+        for chem in reaction['reagents']+reaction['products']:
+            av_complexity += self.cid_chem_map[chem['cid']]['bertz_complexity']
         av_complexity /= len(reaction['reagents']) + len(reaction['products'])
 
         return av_complexity

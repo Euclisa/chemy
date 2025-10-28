@@ -22,7 +22,12 @@ class ChemsPropertiesLLM(ChemsReactionProperties):
         self.products_wiki_raw_reactions_fn = os.path.join(self.data_dir, 'raw_reactions', 'wiki_products_raw_reactions.jsonl')
         self.products_annot_raw_reactions_fn = os.path.join(self.data_dir, 'raw_reactions', 'annotated_products_raw_reactions.jsonl')
 
-        self.reactions_details_llm_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_details_llm.jsonl')
+        self.reactions_parsed_llm_fn = os.path.join(self.parsed_reactions_dir, 'llm')
+        os.makedirs(self.reactions_parsed_llm_fn, exist_ok=True)
+
+        self.reactions_details_llm_fn = os.path.join(self.reactions_details_dir, 'llm')
+        os.makedirs(self.reactions_details_llm_fn, exist_ok=True)
+
         self.reactions_descriptions_fn = os.path.join(self.data_dir, 'reactions_details', 'reactions_descriptions.jsonl')
 
         self.chems_properties_llm_dir = os.path.join(self.chems_properties_dir, 'llm')
@@ -30,6 +35,12 @@ class ChemsPropertiesLLM(ChemsReactionProperties):
         self.chems_descriptions_fn = os.path.join(self.chems_properties_llm_dir, 'chems_descriptions.jsonl')
         self.chems_hazard_categories_llm_fn = os.path.join(self.chems_properties_llm_dir, 'chems_hazard_categories_llm.jsonl')
         self.chems_nfpa_llm_fn = os.path.join(self.chems_properties_llm_dir, 'chems_nfpa_llm.jsonl')
+
+        self._file_sorting_prefs[self.reactions_parsed_llm_fn] = 'rid'
+        self._file_sorting_prefs[self.reactions_details_llm_fn] = 'rid'
+
+        self._dir_vault_prefs[self.reactions_parsed_llm_fn] = 'reactions_'
+        self._dir_vault_prefs[self.reactions_details_llm_fn] = 'reactions_details_'
 
         self.LLM_HAZARD_CATEGORIES = {'explosive', 'acute_toxic', 'flammable', 'oxidizer', 
                     'corrosive', 'serious_health_hazard', 'environment_hazard'}
@@ -133,10 +144,14 @@ class ChemsPropertiesLLM(ChemsReactionProperties):
         self._write_jsonl(parsed, self.reactions_parsed_llm_fn)
         
         self.log(f"Successfully parsed {len(parsed)} reactions!")
+    
+
+    def test(self):
+        self._write_jsonl(self._load_jsonl('data/reactions_details/reactions_details_llm.jsonl'), self.reactions_details_llm_fn)
 
 
 
 
 if __name__ == "__main__":
     chems_parse = ChemsPropertiesLLM('data/')
-    chems_parse.parse_raw_llm_reactions()
+    chems_parse.test()

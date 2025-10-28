@@ -71,9 +71,8 @@ class ChemsMisc(ChemsPropertiesUnified):
     
 
     def extract_radicals_list(self, out_fn):
-        chems = self._load_jsonl(self.chems_fn)
         radicals = []
-        for chem in chems:
+        for chem in self.chems:
             all_names = chem['cmpdsynonym'] + [chem['cmpdname']]
             for name in all_names:
                 if '(.)' in name:

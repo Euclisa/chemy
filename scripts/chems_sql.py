@@ -3,10 +3,10 @@ from psycopg2.extras import execute_values
 import json
 import os
 
-from chems_db import ChemsDB
+from chems_properties_unified import ChemsPropertiesUnified
 
 
-class ChemsSql(ChemsDB):
+class ChemsSql(ChemsPropertiesUnified):
     def __init__(self, data_dir, db_name=None):
         super().__init__(data_dir)
 
@@ -14,11 +14,8 @@ class ChemsSql(ChemsDB):
             self.db_name = os.getenv("CHEMS_DB_NAME")
 
 
-    def populate_db(self):
-        with open(self.chems_fn) as f:
-            chems = [json.loads(x) for x in f.read().strip().split('\n')]
-        
-        all_cids = set([chem['cid'] for chem in chems])
+    def populate_db(self):        
+        all_cids = set([chem['cid'] for chem in self.chems])
         
         conn = psycopg2.connect(database=self.db_name)
         cur = conn.cursor()
@@ -39,34 +36,34 @@ class ChemsSql(ChemsDB):
                                     chem['inchikey'],
                                     chem['complexity'],
                                     chem['bertz_complexity'],
-                                    chem['organic']) for chem in chems])
+                                    chem['organic']) for chem in self.chems])
 
         sql = \
         "INSERT INTO compound_synonyms (cid, synonym) " \
         "VALUES %s " \
         "ON CONFLICT (cid, synonym) DO NOTHING"
-        data = [(chem['cid'], syn) for chem in chems for syn in chem['cmpdsynonym'] if syn]
+        data = [(chem['cid'], syn) for chem in self.chems for syn in chem['cmpdsynonym'] if syn]
         execute_values(cur, sql, data)
 
 
         sql = \
         "INSERT INTO compound_fingerprints (cid, ECFP4_fp, popcount) " \
         "VALUES %s "
-        data = [(chem['cid'], chem['ECFP4_fp']['bits'], chem['ECFP4_fp']['popcount']) for chem in chems]
+        data = [(chem['cid'], chem['ECFP4_fp']['bits'], chem['ECFP4_fp']['popcount']) for chem in self.chems]
         execute_values(cur, sql, data)
 
 
         sql = \
         "INSERT INTO compound_cas (cid, cas) " \
         "VALUES %s"
-        data = [(chem['cid'], cas) for chem in chems for cas in chem['cas']]
+        data = [(chem['cid'], cas) for chem in self.chems for cas in chem['cas']]
         execute_values(cur, sql, data)
 
 
         sql = \
         "INSERT INTO compound_wiki (cid, wiki) " \
         "VALUES %s "
-        data = [(x['cid'], x['wiki']) for x in chems if x['wiki'] is not None]
+        data = [(x['cid'], x['wiki']) for x in self.chems if x['wiki'] is not None]
         execute_values(cur, sql, data)
 
         hazards = self._load_jsonl(self.chems_hazards_wiki_fn)
