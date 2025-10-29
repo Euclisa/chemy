@@ -105,27 +105,25 @@ class ChemsDB:
         return entries
     
     def __prepare_dirs(self, dir_path):
-        # 1. Remove all existing .backup files
-        for fn in glob.glob(os.path.join(dir_path, "*.backup")):
-            try:
-                os.remove(fn)
-            except Exception as e:
-                self.log_warn(f"Failed to remove old backup '{fn}': {e}")
-
-        # 2. Create fresh backups of all .jsonl files
-        for fn in glob.glob(os.path.join(dir_path, "*.jsonl")):
-            backup_fn = fn + ".backup"
-            try:
-                shutil.copy(fn, backup_fn)
-            except Exception as e:
-                self.log_warn(f"Failed to create backup for '{fn}': {e}")
-
-        # 3. Remove all original .jsonl files
         for fn in glob.glob(os.path.join(dir_path, "*.jsonl")):
             try:
                 os.remove(fn)
             except Exception as e:
                 self.log_warn(f"Failed to remove old file '{fn}': {e}")
+    
+
+    def __backup_path(self, path):
+        backup = f"{path}.backup"
+        if os.path.exists(backup):
+            if os.path.isdir(backup):
+                shutil.rmtree(backup)
+            else:
+                os.remove(backup)
+
+        if os.path.isdir(path):
+            shutil.copytree(path, backup)
+        else:
+            shutil.copy(path, backup)
 
     
     def _write_jsonl(self, entries, filename, backup=True, no_sort=False):
@@ -134,11 +132,14 @@ class ChemsDB:
             entries = self._apply_sorting_prefs(entries, self._file_sorting_prefs[filename])
         elif not no_sort:
             self.log_warn(f"Writing to '{filename}' without sorting")
+        
+        if os.path.isdir(filename) and filename not in self._dir_vault_prefs:
+            raise ValueError(f"Directory '{filename}' has no preferences set")
+        
+        if os.path.exists(filename) and backup:
+            self.__backup_path(filename)
 
         if os.path.isdir(filename):
-            if filename not in self._dir_vault_prefs:
-                raise ValueError(f"Directory '{filename}' has no preferences set")
-            
             prefix = self._dir_vault_prefs[filename]
 
             self.__prepare_dirs(filename)
@@ -150,9 +151,6 @@ class ChemsDB:
                 self._write_jsonl(batch, fn, backup=False, no_sort=True)
 
         else:
-            if os.path.exists(filename) and backup:
-                shutil.copy(filename, f"{filename}.backup")
-
             with open(filename, 'w') as f:
                 for entry in entries:
                     f.write(json.dumps(entry) + '\n')

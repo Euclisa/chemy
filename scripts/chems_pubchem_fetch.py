@@ -222,8 +222,9 @@ class ChemsFetchPubchem(ChemsProperties):
         fields_to_keep = ['cid', 'cmpdname', 'cmpdsynonym', 'mf', 'mw', 'complexity', 'smiles', 'inchi', 'inchikey', 'charge', 'annotation', 'iupacname']
         curr_chem = None
         total_incoming = 0
-        unique_inchikeys_chems = dict() if override else self._process_chems()
-        initial_chems_num = len(unique_inchikeys_chems)
+        res_chems = [] if override else self.chems.copy()
+        unique_cids = set(chem['cid'] for chem in res_chems)
+        initial_chems_num = len(res_chems)
         with open(dump_fn) as f_in:
             total = self._count_file_lines(dump_fn)
             for line in self._rich_track(f_in, "Parsing pubchem dump", total=total):
@@ -234,21 +235,26 @@ class ChemsFetchPubchem(ChemsProperties):
                                 total_incoming += 1
                                 if 'cmpdsynonym' in curr_chem:
                                     curr_chem['charge'] = int(curr_chem['charge'])
-                                    curr_chem['cid'] = int(curr_chem['cid'])
+                                    cid = curr_chem['cid'] = int(curr_chem['cid'])
                                     curr_chem['mw'] = float(curr_chem['mw'])
                                     curr_chem['complexity'] = float(curr_chem['complexity'])
                                     if not isinstance(curr_chem['cmpdsynonym'], list):
                                         curr_chem['cmpdsynonym'] = [curr_chem['cmpdsynonym']]
+                                    
+                                    if cid in unique_cids:
+                                        continue
 
-                                    self._process_chem_single(curr_chem, unique_inchikeys_chems, force=True)
+                                    curr_chem = self._process_chem_single(curr_chem, force=True)
+                                    if curr_chem:
+                                        res_chems.append(curr_chem)
+                                        unique_cids.add(cid)
 
                             curr_chem = dict()
                         curr_chem[field] = json.loads('{' + line.strip().strip(',') + '}')[field]
         
-        unique_chems = list(unique_inchikeys_chems.values())
-        self._update_chems(unique_chems)
+        self._update_chems(res_chems)
 
-        print(f"Initial chems num: {initial_chems_num}; Incoming chems processed: {total_incoming}; Total written: {len(unique_chems)}")
+        print(f"Initial chems num: {initial_chems_num}; Incoming chems processed: {total_incoming}; Total written: {len(res_chems)}")
 
 
 if __name__ == "__main__":

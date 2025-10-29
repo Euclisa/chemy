@@ -3,7 +3,7 @@ from chems_ord_parse import ChemsOrdParse
 from chems_sql import ChemsSql
 
 
-class ChemsMain(ChemsPropertiesLLM, ChemsOrdParse, ChemsSql):
+class ChemsMain(ChemsSql, ChemsPropertiesLLM, ChemsOrdParse):
     
     def __init__(self, data_dir):
         super().__init__(data_dir)
@@ -72,11 +72,24 @@ class ChemsMain(ChemsPropertiesLLM, ChemsOrdParse, ChemsSql):
     
 
     def test(self):
-        entries = self._load_jsonl(self.chems_hazard_categories_llm_fn)
-        for entry in entries:
-            entry['source'] = self.gpt_oss
+        count = 0
+        for chem in self.chems_unmapped:
+            if chem['bertz_complexity'] > 800:
+                count += 1
         
-        self._write_jsonl(entries, self.chems_hazard_categories_llm_fn)
+        self.print(count)
+    
+
+    def discard_orphaned_unmapped_chems(self, connectivity_degree_thr=1):
+        reactions = self._load_jsonl(self.reactions_parsed_ord_fn)
+        cids_connectivity = dict()
+        for reaction in reactions:
+            all_cids = self._get_all_reaction_cids(reaction)
+            for cid in all_cids:
+                cids_connectivity[cid] = cids_connectivity.setdefault(cid, 0) + 1
+        
+        res_chems = [chem for chem in self.chems if chem['cid'] < 0 and cids_connectivity.get(chem['cid'], 0) >= connectivity_degree_thr]
+        self._update_unmapped_chems(res_chems)
         
 
         
@@ -86,4 +99,4 @@ class ChemsMain(ChemsPropertiesLLM, ChemsOrdParse, ChemsSql):
 
 if __name__ == "__main__":
     chems = ChemsMain('data/')
-    chems.test()
+    chems.discard_orphaned_unmapped_chems()

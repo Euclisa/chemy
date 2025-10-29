@@ -18,7 +18,7 @@ from chems_reaction_properties import ChemsReactionProperties
 
 
 class ChemsOrdParse(ChemsReactionProperties):
-    def __init__(self, chems_data, ord_data='ord-data/'):
+    def __init__(self, chems_data, ord_data='submodules/ord-data/'):
         super().__init__(chems_data)
 
         self.ord_data = ord_data
@@ -68,7 +68,7 @@ class ChemsOrdParse(ChemsReactionProperties):
             f.write(json.dumps(rxn_json, indent=2))
     
 
-    def extract_ord_reactions(self, out_fn, complexity_thr=600):
+    def extract_ord_reactions(self, out_fn):
         reactions_written = 0
         overall = 0
         for dirpath, dirnames, filenames in os.walk(self.ord_data):
@@ -129,29 +129,30 @@ class ChemsOrdParse(ChemsReactionProperties):
                                 continue
 
                             chems = inputs + outcomes
-                            complexities = []
+                            criteria = True
                             for chem in chems:
                                 mol = Chem.MolFromSmiles(chem)
                                 if not mol:
                                     bad = True
                                     break
-                                bertz_ct = GraphDescriptors.BertzCT(mol)
-                                complexities.append(bertz_ct)
+
+                                if not self._unmapped_complexity_criteria_mol(mol):
+                                    criteria = False
+                                    break
                             
                             if bad:
                                 continue
                             
-                            max_compl = max(complexities)
                             overall += 1
-                            if max_compl < complexity_thr:
+                            if criteria:
                                 with open(out_fn, 'a') as f:
                                     f.write(json.dumps(reaction_json) + '\n')
                                 reactions_written += 1
                                 if reactions_written % 1000 == 0:
-                                    print(f"Written: {reactions_written}; All: {overall}")
+                                    self.log(f"Written: {reactions_written}; All: {overall}")
 
                     except Exception as e:
-                        print(f"Exception occured: {e}")
+                        self.log_err(f"Exception occured: {e}")
     
 
     def split_ord_file(self, ord_file, out_dir, prefix="ord", lines_per_file=20000):
@@ -326,7 +327,7 @@ class ChemsOrdParse(ChemsReactionProperties):
 
                             f_out.write(json.dumps(cleaned_entry) + '\n')
 
-        print(f"Total fixed: {fixed_cnt}")
+        self.log(f"Total fixed: {fixed_cnt}")
     
 
     def parse_raw_ord_reactions(self, ord_reactions_fn, balance=True):
@@ -367,11 +368,14 @@ class ChemsOrdParse(ChemsReactionProperties):
                     smiles = process_smiles(substance['smiles'])
                     mol = Chem.MolFromSmiles(smiles)
                     if not mol:
+                        parse_success = False
                         return None
 
                     smiles = Chem.MolToSmiles(mol, canonical=True)
-                    inchikey = inchi.MolToInchiKey(mol, options="/SNon")
-
+                    norm_inchi = self._get_mol_norm_inchi(mol)
+                    if not norm_inchi:
+                        parse_success = False
+                        return None
 
                     def process_name(name):
                         if not name:
@@ -384,12 +388,10 @@ class ChemsOrdParse(ChemsReactionProperties):
                     original_name = substance.get('name')
                     norm_name = process_name(original_name)
 
-                    if inchikey in self.inchikey_cid_map:
-                        cid = self.inchikey_cid_map.get(inchikey)
+                    if norm_inchi in self.norm_inchi_cid_map:
+                        cid = self.norm_inchi_cid_map[norm_inchi]
                     elif smiles in self.smiles_cid_map:
                         cid = self.smiles_cid_map[smiles]
-                    elif norm_name is not None and norm_name in self.name_cid_map:
-                        cid = self.name_cid_map[norm_name]
                     else:
                         unmapped_smiles[smiles] = unmapped_smiles.setdefault(smiles, 0) + 1
                         if smiles_name_map.get(smiles) is None and self._good_name_criteria(original_name):
@@ -498,10 +500,7 @@ class ChemsOrdParse(ChemsReactionProperties):
             name_smiles.append((name, smiles))
         
         self._add_new_chems(name_smiles)
-    
 
-    def test(self):
-        self._write_jsonl(self._load_jsonl('data/reactions_details/reactions_details_ord.jsonl'), self.reactions_details_ord_fn)
 
 
 if __name__ == "__main__":
@@ -509,7 +508,7 @@ if __name__ == "__main__":
     #ord.extract_file("d6/ord_dataset-d6cdba90760a47779a36ece5962905eb.pb.gz", "out.json")
     #ord.extract_ord_reactions("out.jsonl")
     #ord.split_ord_file("out.jsonl", "ord/")
+    #ord.clean_ord_reactions('ord', 'cleaned_ord.jsonl')
     #ord.sample_ord("ord/ord_0.jsonl", 5, "samples.json")
-    #ord.parse_raw_ord_reactions('cleaned_ord.jsonl', balance=False)
+    ord.parse_raw_ord_reactions('cleaned_ord.jsonl', balance=False)
     #ord.add_unmapped_ord_chems()
-    ord.test()

@@ -8,6 +8,12 @@ from rdkit import Chem, RDLogger
 from rdkit.Chem import AllChem, GraphDescriptors, inchi, rdMolDescriptors, Descriptors
 
 from functools import cached_property
+from types import MappingProxyType
+from itertools import chain
+
+import numpy as np
+import matplotlib.pyplot as plt
+
 import inspect
 
 from rich.progress import track, Progress
@@ -61,8 +67,10 @@ class ChemsProperties(ChemsDB):
         self._dir_vault_prefs[self.chems_unmapped_fn] = 'chems_'
 
         self.complexity_thr = 700
-        self.bertz_complexity_thr = 1000
         self.max_synonyms_thr = 150
+
+        self.unmapped_bertz_complexity_thr = 1000
+        self.unmapped_heavy_count_thr = 15
 
         self.unknown_name_ph = "<Unknown>"
 
@@ -71,41 +79,84 @@ class ChemsProperties(ChemsDB):
 
     @cached_property
     def chems(self):
+        return tuple(chain(self.chems_mapped, self.chems_unmapped))
+    
+    @cached_property
+    def chems_mapped(self):
         mapped = self._load_jsonl(self.chems_mapped_fn)
+        return tuple(mapped)
+    
+    @cached_property
+    def chems_unmapped(self):
         unmapped = self._load_jsonl(self.chems_unmapped_fn)
-        return mapped + unmapped
+        return tuple(unmapped)
+    
+    @cached_property
+    def cids_mapped(self):
+        return frozenset(chem['cid'] for chem in self.chems_mapped)
+    
+    @cached_property
+    def cids_unmapped(self):
+        return frozenset(chem['cid'] for chem in self.chems_unmapped)
     
     @cached_property
     def cids_blacklist(self):
-        return set([x['cid'] for x in self._load_jsonl(self.cids_blacklist_fn)])
+        return frozenset([x['cid'] for x in self._load_jsonl(self.cids_blacklist_fn)])
 
     @cached_property
     def cid_chem_map(self):
-        return {chem['cid']: chem for chem in self.chems}
+        return MappingProxyType({chem['cid']: chem for chem in self.chems})
+    
+    @cached_property
+    def mapped_cid_chem_map(self):
+        return MappingProxyType({chem['cid']: chem for chem in self.chems_mapped})
     
     @cached_property
     def inchikey_cid_map(self):
-        return {chem['inchikey_snone']: chem['cid'] for chem in self.chems}
+        return MappingProxyType({chem['inchikey_snone']: chem['cid'] for chem in self.chems})
+    
+    @cached_property
+    def mapped_inchikey_cid_map(self):
+        return MappingProxyType({chem['inchikey_snone']: chem['cid'] for chem in self.chems_mapped})
+    
+    def __get_norm_inchi_cid_map_chems(self, chems):
+        _norm_inchi_cid_map = dict()
+        for chem in chems:
+            norm_inchi = self._strip_inchi_layers(chem['inchi_snone'])
+            _norm_inchi_cid_map[chem['cid']] = norm_inchi
+        return _norm_inchi_cid_map
+    
+    @cached_property
+    def norm_inchi_cid_map(self):
+        return MappingProxyType(self.__get_norm_inchi_cid_map_chems(self.chems))
+    
+    @cached_property
+    def mapped_norm_inchi_cid_map(self):
+        return MappingProxyType(self.__get_norm_inchi_cid_map_chems(self.chems_mapped))
     
     @cached_property
     def smiles_cid_map(self):
-        return {chem['smiles']: chem['cid'] for chem in self.chems}
+        return MappingProxyType({chem['smiles']: chem['cid'] for chem in self.chems})
+    
+    @cached_property
+    def mapped_smiles_cid_map(self):
+        return MappingProxyType({chem['smiles']: chem['cid'] for chem in self.chems_mapped})
 
     @cached_property
     def cid_mf_map(self):
-        return {chem['cid']: chem['mf'] for chem in self.chems}
+        return MappingProxyType({chem['cid']: chem['mf'] for chem in self.chems})
     
 
     @cached_property
     def cid_wiki_map(self):
         wiki_entries = self._load_jsonl(self.chems_wiki_fn)
-        return {entry['cid']: entry['wiki'] for entry in wiki_entries}
+        return MappingProxyType({entry['cid']: entry['wiki'] for entry in wiki_entries})
 
 
     @cached_property
     def cids_filtered_synonyms(self):
         entries = self._load_jsonl(self.cids_filtered_synonyms_fn)
-        return {x['cid']: set(x['synonyms']) for x in entries}
+        return MappingProxyType({x['cid']: set(x['synonyms']) for x in entries})
 
     @cached_property
     def name_cid_map(self):
@@ -116,7 +167,7 @@ class ChemsProperties(ChemsDB):
             for syn in chem['cmpdsynonym']:
                 _name_cid_map[self._normalize_chem_name(syn, is_clean=True)] = cid
 
-        return _name_cid_map
+        return MappingProxyType(_name_cid_map)
 
     @cached_property
     def cas_cid_map(self):
@@ -128,11 +179,21 @@ class ChemsProperties(ChemsDB):
                 for cas in cas_list:
                     _cas_cid_map[cas] = cid
         
-        return _cas_cid_map
+        return MappingProxyType(_cas_cid_map)
     
     @cached_property
     def symb_to_el(self):
-        return {el['symbol']: el for el in self._load_jsonl(self.elements_fn)}
+        return MappingProxyType({el['symbol']: el for el in self._load_jsonl(self.elements_fn)})
+    
+
+    def _clear_cached_property(self, name: str):
+        cls_attr = getattr(type(self), name, None)
+        if isinstance(cls_attr, cached_property):
+            if name in self.__dict__:
+                del self.__dict__[name]
+                return True
+            return False
+        raise AttributeError(f"'{name}' is not a cached_property of {type(self).__name__}")
 
 
     def __clear_runtime_chems_properties(self):
@@ -150,10 +211,18 @@ class ChemsProperties(ChemsDB):
         self._write_jsonl(unmapped_chems, self.chems_unmapped_fn)
 
         self.__clear_runtime_chems_properties()
+    
+
+    def _update_unmapped_chems(self, new_chems):
+
+        unmapped_chems = [chem for chem in new_chems if chem.get('cid', 0) < 0]
+        self._write_jsonl(unmapped_chems, self.chems_unmapped_fn)
+
+        self.__clear_runtime_chems_properties()
 
 
     def _update_cids_blacklist(self, cids):
-        cids = set(cids)
+        cids = set(filter(lambda cid: cid > 0, cids))
         unique_new_cids = cids - self.cids_blacklist
         if not unique_new_cids:
             return
@@ -164,7 +233,7 @@ class ChemsProperties(ChemsDB):
                 f.write(json.dumps({'cid': cid, 'name': name}) + '\n')
             f.flush()
 
-        self.cids_blacklist.update(unique_new_cids)
+        self._clear_cached_property('cids_blacklist')
     
 
     def _count_file_lines(self, filename):
@@ -431,31 +500,26 @@ class ChemsProperties(ChemsDB):
 
 
 
-    def _process_chem_single(self, chem, unique_inchikeys_chems, force):
+    def _process_chem_single(self, chem, force=False):
         cid = chem['cid']
 
         try:
-            if cid < 0:
-                for entry in unique_inchikeys_chems.values():
-                    if cid == entry['cid']:
-                        self.log_err(f"Compound with CID {cid} already exists")
-                        return False
 
             if chem['charge'] != 0:
-                return False
+                return None
 
             if cid in self.cids_blacklist:
-                return False
+                return None
 
             if cid > 0 and chem['complexity'] > self.complexity_thr:
-                return False
+                return None
 
             if '/i' in chem['inchi']:
-                return False
+                return None
 
             mol = Chem.MolFromSmiles(chem['smiles'])
             if mol is None:
-                return False
+                return None
             chem['smiles'] = Chem.MolToSmiles(mol, canonical=True)
 
             # Don't use 'force' since we remove CAS numbers from synonyms anyway
@@ -467,7 +531,10 @@ class ChemsProperties(ChemsDB):
 
             if cid > 0:
                 if not self.__process_chem_synonyms(chem):
-                    return False
+                    return None
+            else:
+                if not self._good_name_criteria(chem['cmpdname']):
+                    chem['cmpdname'] = self.unknown_name_ph
 
             def is_hydrate_inchi(inchi: str) -> bool:
                 try:
@@ -485,12 +552,12 @@ class ChemsProperties(ChemsDB):
                     if water_pattern.match(mol_str):
                         return True
 
-                return False
+                return None
 
             if cid > 0:
                 # Filter hydrates (two checks for reliability)
                 if is_hydrate_inchi(chem['inchi']) and 'hydrate' in chem['cmpdname']:
-                    return False
+                    return None
 
             if 'ECFP4_fp' not in chem or force:
                 chem['ECFP4_fp'] = self._get_mol_fingerprint(mol)
@@ -498,8 +565,11 @@ class ChemsProperties(ChemsDB):
             if 'bertz_complexity' not in chem or force:
                 chem['bertz_complexity'] = self._get_mol_bertz_complexity(mol)
             
-            if cid < 0 and chem['bertz_complexity'] > self.bertz_complexity_thr:
-                return False
+            if 'heavy_count' not in chem or force:
+                chem['heavy_count'] = mol.GetNumHeavyAtoms()
+            
+            if cid < 0 and not self._unmapped_complexity_criteria(chem):
+                return None
 
             if 'organic' not in chem or force:
                 chem['organic'] = self._get_mol_organic_mark(mol)
@@ -514,37 +584,21 @@ class ChemsProperties(ChemsDB):
                 chem['inchikey_snone'] = inchi.MolToInchiKey(mol, options="/SNon")
 
             if not chem['inchi_snone'] or not chem['inchikey_snone']:
-                return False
+                return None
 
-            inchikey = chem['inchikey_snone']
-            if inchikey in unique_inchikeys_chems:
-                old_chem = unique_inchikeys_chems[inchikey]
-
-                if chem['cid'] > 0 or old_chem['cid'] < 0:
-                    old_inchi = old_chem['inchi']
-                    curr_inchi = chem['inchi']
-
-                    if old_chem['cid'] < 0 or len(curr_inchi) < len(old_inchi):
-                        if len(curr_inchi) < len(old_inchi):
-                            chem['cmpdsynonym'] = self._merge_synonyms(chem, old_chem)
-                        unique_inchikeys_chems[inchikey] = chem
-                    else:
-                        old_chem['cmpdsynonym'] = self._merge_synonyms(chem, old_chem)
-            else:
-                unique_inchikeys_chems[inchikey] = chem
-
-            return True
+            return chem
 
         except Exception as e:
             self.log_warn(f"Exception during processing compound with CID {cid}: {e}")
-            return False
+            return None
 
     def _process_chems(self, force=False):
-        unique_inchikeys_chems = dict()
+        processed_chems = []
         for chem in self._rich_track(self.chems, "Processing compounds"):
-            self._process_chem_single(chem, unique_inchikeys_chems, force=force)
+            if (chem := self._process_chem_single(chem, force=force)):
+                processed_chems.append(chem)
 
-        return unique_inchikeys_chems
+        return processed_chems
     
 
     def _get_unique_inchikeys_chems(self, organize=False):
@@ -567,10 +621,10 @@ class ChemsProperties(ChemsDB):
     def organize_chems_file(self, force=False):
         initial_chems_num = len(self.chems)
 
-        unique_chems = list(self._process_chems(force=force).values())
-        self._update_chems(unique_chems)
+        processed_chems = self._process_chems(force=force)
+        self._update_chems(processed_chems)
 
-        print(f"Discarded {initial_chems_num - len(unique_chems)} chems")
+        print(f"Discarded {initial_chems_num - len(processed_chems)} chems")
 
     def __chem_name_to_ascii(self, chem_name_raw):
         unicode_map = {
@@ -675,31 +729,74 @@ class ChemsProperties(ChemsDB):
         chem['cmpdsynonym'] = [name]
 
         return chem
-
-
     
 
-    def _add_new_chems(self, name_smiles):
-        unique_inchikeys_chems = self._get_unique_inchikeys_chems()
-        init_chems_num = len(unique_inchikeys_chems)
-        
-        occupied_cids = [chem['cid'] for chem in unique_inchikeys_chems.values() if chem['cid'] < 0]
+    def _strip_inchi_layers(self, inchi: str) -> str:
+        if not inchi.startswith("InChI="):
+            raise ValueError("Input does not appear to be a valid InChI string")
 
+        cleaned = re.sub(r"/[pqi][^/]*", "", inchi)
+        return cleaned
+
+
+    def _get_mol_norm_inchi(self, mol):
+        try:
+            return self._strip_inchi_layers(inchi.MolToInchi(mol, options="/SNon"))
+        except Exception:
+            return None
+
+    def _get_chem_norm_inchi(self, chem):
+        return self._strip_inchi_layers(chem['inchi_snone'])
+
+
+    def _add_new_chems(self, name_smiles):
+        res_chems = list(self.chems)
+        init_chems_num = len(res_chems)
+        
+        occupied_cids = [chem['cid'] for chem in self.cids_unmapped]
         free_cid = min(occupied_cids)-1 if occupied_cids else -1
+
+        norm_inchi_set = set(self.norm_inchi_cid_map.keys())
+
         for name, smiles in self._rich_track(name_smiles, "Adding compounds"):
             chem = self.__build_basic_chem(free_cid, name, smiles)
             if chem:
-                status = self._process_chem_single(chem, unique_inchikeys_chems, force=False)
+                status = self._process_chem_single(chem)
                 if status:
-                    free_cid -= 1
+                    norm_inchi = self._get_chem_norm_inchi(chem)
+                    if norm_inchi not in norm_inchi_set:
+                        res_chems.append(chem)
+                        norm_inchi_set.add(norm_inchi)
+                        free_cid -= 1
 
-        self._update_chems(list(unique_inchikeys_chems.values()))
+        self._update_chems(res_chems)
 
-        result_chems_num = len(unique_inchikeys_chems)
+        result_chems_num = len(res_chems)
         self.log(f"Processed {len(name_smiles)} entries; added {result_chems_num-init_chems_num} new compounds")
+    
+
+    def _get_fp_tanimoto(self, fp1, fp2):
+        and_pop = sum((ai & bi).bit_count() for ai, bi in zip(fp1["bits"], fp2["bits"]))
+        or_pop = fp1["popcount"] + fp2["popcount"] - and_pop
+
+        return 1.0 if or_pop == 0 else and_pop / or_pop
+        
+
+    def _unmapped_complexity_criteria(self, chem):
+        if chem['cid'] > 0:
+            return True
+
+        return chem['bertz_complexity'] <= self.unmapped_bertz_complexity_thr or chem['heavy_count'] <= self.unmapped_heavy_count_thr
+
+
+    def _unmapped_complexity_criteria_mol(self, mol):
+        try:
+            return self._get_mol_bertz_complexity(mol) <= self.unmapped_bertz_complexity_thr or mol.GetNumHeavyAtoms() <= self.unmapped_heavy_count_thr
+        except Exception:
+            return False
 
 
 
 if __name__ == "__main__":
     parse = ChemsProperties('data/')
-    parse.test()
+    parse.plot_fp_popcount_bertz_graph()
