@@ -377,16 +377,16 @@ class ChemsProperties(ChemsDB):
         name = name.strip()
         
         DISCARD_WORDS_PART = [
-            'oil', 'solid', 'liquid', 'dry', 'powder', 'nanopowder',
+            'oil', 'solid', 'solids', 'liquid', 'dry', 'powder', 'nanopowder',
             'beads', 'impurity', 'grade', 'intermediate', 'title', 'desired',
             'material', 'solution', 'syrup', 'crystals', 'residue', 'compound',
-            'product', 'titled'
+            'product', 'titled', 'mixture', 'foam'
         ]
 
         discard_word_part_pattern = '(' + '|'.join([r"\b"+word+r"\b" for word in DISCARD_WORDS_PART]) + ')'
 
         DISCARD_WORDS_WHOLE = [
-            'acetate', 'acid', 'salt', 'phosphonate', 'ester'
+            'acetate', 'acid', 'salt', 'phosphonate', 'ester', 'amide', 'nitrile'
         ]
 
         discard_word_whole_pattern = '(' + '|'.join([r"^"+word+r"$" for word in DISCARD_WORDS_WHOLE]) + ')'
@@ -505,13 +505,15 @@ class ChemsProperties(ChemsDB):
 
         try:
 
+            is_mapped = cid > 0
+
             if chem['charge'] != 0:
                 return None
 
             if cid in self.cids_blacklist:
                 return None
 
-            if cid > 0 and chem['complexity'] > self.complexity_thr:
+            if is_mapped and chem['complexity'] > self.complexity_thr:
                 return None
 
             if '/i' in chem['inchi']:
@@ -529,12 +531,14 @@ class ChemsProperties(ChemsDB):
             if 'iupacname' not in chem:
                 chem['iupacname'] = None
 
-            if cid > 0:
+            if is_mapped:
                 if not self.__process_chem_synonyms(chem):
                     return None
             else:
                 if not self._good_name_criteria(chem['cmpdname']):
                     chem['cmpdname'] = self.unknown_name_ph
+                    if chem['cmpdname'] == self.unknown_name_ph:
+                        chem['cmpdsynonym'] = []
 
             def is_hydrate_inchi(inchi: str) -> bool:
                 try:
@@ -554,7 +558,7 @@ class ChemsProperties(ChemsDB):
 
                 return None
 
-            if cid > 0:
+            if is_mapped:
                 # Filter hydrates (two checks for reliability)
                 if is_hydrate_inchi(chem['inchi']) and 'hydrate' in chem['cmpdname']:
                     return None
@@ -568,7 +572,7 @@ class ChemsProperties(ChemsDB):
             if 'heavy_count' not in chem or force:
                 chem['heavy_count'] = mol.GetNumHeavyAtoms()
             
-            if cid < 0 and not self._unmapped_complexity_criteria(chem):
+            if not is_mapped and not self._unmapped_complexity_criteria(chem):
                 return None
 
             if 'organic' not in chem or force:
@@ -799,4 +803,4 @@ class ChemsProperties(ChemsDB):
 
 if __name__ == "__main__":
     parse = ChemsProperties('data/')
-    parse.plot_fp_popcount_bertz_graph()
+    parse.organize_chems_file()
