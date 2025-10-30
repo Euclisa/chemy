@@ -26,40 +26,13 @@ class ChemsConflicts(ChemsReactionProperties):
 
     
 
-    def _display_compound_table(self, compound_i, chem, cid, extra_rows=None):
-        syns = chem['cmpdsynonym']
-        name = chem['cmpdname']
-        inchi = chem['inchi']
-        cas = chem['cas']
-        syns_num_to_disp = 10
-        top_syns_str = ', '.join(f'"{syn}"' for syn in syns[:syns_num_to_disp])
-
-        table = Table(
-            title=f"[bold cyan]Compound {compound_i}: {name}[/bold cyan] (CID: [yellow]{cid}[/yellow])",
-            show_header=False,
-            expand=True
-        )
-
-        if extra_rows:
-            for row in extra_rows:
-                table.add_row(*row)
-
-        table.add_row(f"First {syns_num_to_disp} synonyms", f"{top_syns_str}")
-        table.add_row("InChI", f"{inchi}")
-        table.add_row("CAS", f"{cas}")
-        self.print(table)
+    def _display_conflict_table_cid(self, conflict_i, conflict_str, cid1, cid2, display_compound=None):
+        chem1, chem2 = self.cid_chem_map[cid1], self.cid_chem_map[cid2]
+        self._display_conflict_table(conflict_i, conflict_str, chem1, chem2, display_compound=display_compound)
     
 
-    def _display_conflict_table(self, conflict_i, conflict_str, cid1, cid2, display_compound=None):
-        if display_compound is None:
-            display_compound = self._display_compound_table
-
-        self.print(Rule(f"[bold yellow]CONFLICT {conflict_i}: '{conflict_str}'[/bold yellow]"))
-
-        chem1, chem2 = self.cid_chem_map[cid1], self.cid_chem_map[cid2]
-        display_compound(1, chem1, cid1)
-        self.print(Rule())
-        display_compound(2, chem2, cid2)
+    def _display_conflict_table(self, conflict_i, conflict_str, chem1, chem2, display_compound=None):
+        self._display_compare_table(f"[bold yellow]CONFLICT {conflict_i}: '{conflict_str}'[/bold yellow]", chem1, chem2, display_compound=display_compound)
 
 
     def resolve_conflicting_synonyms(self, only_relevant=True):
@@ -92,7 +65,7 @@ class ChemsConflicts(ChemsReactionProperties):
 
                 self._display_compound_table(compound_i, chem, cid, [("Conflict synonyms", f"[magenta]{conflict_synonyms_str}[/magenta]")])
             
-            self._display_conflict_table(conflict_i, conflict_norm_name, cid1, cid2, display_compound=display_compound)
+            self._display_conflict_table_cid(conflict_i, conflict_norm_name, cid1, cid2, display_compound=display_compound)
 
         conflict_map = dict()
         cids_to_delete = set()
@@ -241,7 +214,7 @@ class ChemsConflicts(ChemsReactionProperties):
                     
                     # if one of cids < 0 then delete the one (it must be cid1)
                     if cid1*cid2 > 0:
-                        self._display_conflict_table(conflict_i, conflict_inchi, cid1, cid2)
+                        self._display_conflict_table_cid(conflict_i, conflict_inchi, cid1, cid2)
                         decision = input("* Decision: ").strip()
                     else:
                         decision = 'c2'

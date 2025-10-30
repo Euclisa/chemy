@@ -30,11 +30,14 @@ class ChemsOrdParse(ChemsReactionProperties):
         self.reactions_details_ord_fn = os.path.join(self.reactions_details_dir, 'ord')
         os.makedirs(self.reactions_details_ord_fn, exist_ok=True)
 
+        self.smiles_cid_map_ord_fn = os.path.join(self.data_dir, 'misc', 'smiles_cid_map_ord.jsonl')
+
         self.unmapped_smiles_fn = os.path.join(self.data_dir, 'unmapped_smiles.jsonl')
 
         self._file_sorting_prefs[self.reactions_parsed_ord_fn] = 'rid'
         self._file_sorting_prefs[self.reactions_details_ord_fn] = 'rid'
         self._file_sorting_prefs[self.unmapped_smiles_fn] = ('count', True)
+        self._file_sorting_prefs[self.smiles_cid_map_ord_fn] = 'cid'
 
         self._dir_vault_prefs[self.reactions_parsed_ord_fn] = 'reactions_'
         self._dir_vault_prefs[self.reactions_details_ord_fn] = 'reactions_details_'
@@ -331,6 +334,9 @@ class ChemsOrdParse(ChemsReactionProperties):
     
 
     def parse_raw_ord_reactions(self, ord_reactions_fn, balance=True):
+        smiles_cid_ord_map = self._load_jsonl_map(self.smiles_cid_map_ord_fn, 'smiles', 'cid')
+        smiles_cid_ord_map = {k: v for k, v in smiles_cid_ord_map.items() if v != self.null_cid}
+
         unmapped_smiles = dict()
         smiles_name_map = dict()
         mapped_count = 0
@@ -388,7 +394,9 @@ class ChemsOrdParse(ChemsReactionProperties):
                     original_name = substance.get('name')
                     norm_name = process_name(original_name)
 
-                    if norm_inchi in self.norm_inchi_cid_map:
+                    if smiles in smiles_cid_ord_map:
+                        cid = smiles_cid_ord_map[smiles]
+                    elif norm_inchi in self.norm_inchi_cid_map:
                         cid = self.norm_inchi_cid_map[norm_inchi]
                     elif smiles in self.smiles_cid_map:
                         cid = self.smiles_cid_map[smiles]
@@ -473,7 +481,7 @@ class ChemsOrdParse(ChemsReactionProperties):
                     parsed_details_list.append(parsed_details)
                     
                     mapped_count += 1
-                    if mapped_count % 1000 == 0:
+                    if mapped_count % 10000 == 0:
                         self.log(f"Mapped {mapped_count} reactions out of {overall_count}")
         
         self._write_jsonl(parsed_reactions_list, self.reactions_parsed_ord_fn)
@@ -500,6 +508,73 @@ class ChemsOrdParse(ChemsReactionProperties):
             name_smiles.append((name, smiles))
         
         self._add_new_chems(name_smiles)
+    
+
+    def populate_unmapped_smiles_cid_map(self):
+        smiles_cid_ord_map = self._load_jsonl_map(self.smiles_cid_map_ord_fn, 'smiles', 'cid')
+        unmapped_entries = self._load_jsonl(self.unmapped_smiles_fn)
+
+        try:
+            stop = False
+
+            def _process_entry(entry, skip_prompt=False):
+                smiles = entry['smiles']
+
+                if smiles in smiles_cid_ord_map:
+                    return True
+
+                name = entry['name']
+                if not name:
+                    return True
+
+                norm_name = self._normalize_chem_name(name, is_clean=True)
+                if norm_name in self.name_cid_map:
+
+                    unmapped_chem = self._build_chem(-1, name, smiles)
+                    if not unmapped_chem:
+                        return True
+
+                    cid = self.name_cid_map[norm_name]
+                    mapped_chem = self.cid_chem_map[cid]
+
+                    mapped_chem_inchi = self._get_chem_norm_inchi(mapped_chem)
+                    unmapped_chem_inchi = self._get_chem_norm_inchi(unmapped_chem)
+
+                    while True:
+                        if mapped_chem_inchi != unmapped_chem_inchi or cid < 0:
+                            if skip_prompt:
+                                return True
+
+                            self._display_compare_table(f"[bold yellow]Confirm merge?[/bold yellow]", unmapped_chem, mapped_chem)
+                            decision = input(f"Merge? [yn]: ").lower().strip()
+                        else:
+                            decision = 'y'
+
+                        if decision in {'y', 'yes'}:
+                            smiles_cid_ord_map[smiles] = cid
+                            self.print(f"Merging '{name}' with CID {cid}")
+                        elif decision in {'n', 'no'}:
+                            smiles_cid_ord_map[smiles] = self.null_cid
+                        elif decision in {'exit', 'stop'}:
+                            return False
+                        else:
+                            self.print(f"[red]!!! Invalid decision '{decision}' !!![/red]")
+                            continue
+                        break
+                
+                return True
+
+            for entry in unmapped_entries:
+                _process_entry(entry, skip_prompt=True)
+            
+            for entry in unmapped_entries:
+                proceed = _process_entry(entry, skip_prompt=False)
+                if not proceed:
+                    break
+        
+        finally:
+            self._write_jsonl_map(smiles_cid_ord_map, 'smiles', 'cid', self.smiles_cid_map_ord_fn)
+                
 
 
 
@@ -512,3 +587,4 @@ if __name__ == "__main__":
     #ord.sample_ord("ord/ord_0.jsonl", 5, "samples.json")
     ord.parse_raw_ord_reactions('cleaned_ord.jsonl', balance=False)
     #ord.add_unmapped_ord_chems()
+    #ord.populate_unmapped_smiles_cid_map()

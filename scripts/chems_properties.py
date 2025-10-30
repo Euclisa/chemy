@@ -16,7 +16,9 @@ import matplotlib.pyplot as plt
 
 import inspect
 
-from rich.progress import track, Progress
+from rich.progress import Progress
+from rich.table import Table
+from rich.rule import Rule
 
 from chems_db import ChemsDB
 
@@ -73,6 +75,7 @@ class ChemsProperties(ChemsDB):
         self.unmapped_heavy_count_thr = 15
 
         self.unknown_name_ph = "<Unknown>"
+        self.null_cid = 0
 
         self.CAS_PATTERN = r'\d{2,7}-\d{2}-\d'
     
@@ -380,13 +383,17 @@ class ChemsProperties(ChemsDB):
             'oil', 'solid', 'solids', 'liquid', 'dry', 'powder', 'nanopowder',
             'beads', 'impurity', 'grade', 'intermediate', 'title', 'desired',
             'material', 'solution', 'syrup', 'crystals', 'residue', 'compound',
-            'product', 'titled', 'mixture', 'foam'
+            'product', 'titled', 'mixture', 'foam', 'needles', 'crude', 'resin',
+            'gum'
         ]
 
         discard_word_part_pattern = '(' + '|'.join([r"\b"+word+r"\b" for word in DISCARD_WORDS_PART]) + ')'
 
         DISCARD_WORDS_WHOLE = [
-            'acetate', 'acid', 'salt', 'phosphonate', 'ester', 'amide', 'nitrile'
+            'acetate', 'acid', 'salt', 'phosphonate', 'ester', 'amide', 'nitrile',
+            'aldehyde', 'amine', 'alcohol', 'ketone', 'diacid', 'gas', 'cyano', 'azide',
+            'metal', 'ether', 'oxime', 'imine', 'alkyne', 'alkene', 'hydrochloride',
+            "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"
         ]
 
         discard_word_whole_pattern = '(' + '|'.join([r"^"+word+r"$" for word in DISCARD_WORDS_WHOLE]) + ')'
@@ -404,6 +411,7 @@ class ChemsProperties(ChemsDB):
             r'-,',
             r'^\d+$',
             r'^[a-z]?[0-9-()\s]+[a-z]?$',
+            r'\( .+ \)',
             discard_word_part_pattern,
             discard_word_whole_pattern
         ]
@@ -696,7 +704,7 @@ class ChemsProperties(ChemsDB):
         return chem_name
     
 
-    def __build_basic_chem(self, cid, name, smiles):
+    def _build_chem(self, cid, name, smiles):
         if not name:
             name = "<Unknown>"
         
@@ -732,6 +740,10 @@ class ChemsProperties(ChemsDB):
         chem['charge'] = charge
         chem['cmpdsynonym'] = [name]
 
+        chem = self._process_chem_single(chem)
+        if not chem:
+            return None
+
         return chem
     
 
@@ -739,7 +751,7 @@ class ChemsProperties(ChemsDB):
         if not inchi.startswith("InChI="):
             raise ValueError("Input does not appear to be a valid InChI string")
 
-        cleaned = re.sub(r"/[pqi][^/]*", "", inchi)
+        cleaned = re.sub(r"/[pqib][^/]*", "", inchi)
         return cleaned
 
 
@@ -763,15 +775,13 @@ class ChemsProperties(ChemsDB):
         norm_inchi_set = set(self.norm_inchi_cid_map.keys())
 
         for name, smiles in self._rich_track(name_smiles, "Adding compounds"):
-            chem = self.__build_basic_chem(free_cid, name, smiles)
+            chem = self._build_chem(free_cid, name, smiles)
             if chem:
-                status = self._process_chem_single(chem)
-                if status:
-                    norm_inchi = self._get_chem_norm_inchi(chem)
-                    if norm_inchi not in norm_inchi_set:
-                        res_chems.append(chem)
-                        norm_inchi_set.add(norm_inchi)
-                        free_cid -= 1
+                norm_inchi = self._get_chem_norm_inchi(chem)
+                if norm_inchi not in norm_inchi_set:
+                    res_chems.append(chem)
+                    norm_inchi_set.add(norm_inchi)
+                    free_cid -= 1
 
         self._update_chems(res_chems)
 
@@ -798,6 +808,52 @@ class ChemsProperties(ChemsDB):
             return self._get_mol_bertz_complexity(mol) <= self.unmapped_bertz_complexity_thr or mol.GetNumHeavyAtoms() <= self.unmapped_heavy_count_thr
         except Exception:
             return False
+    
+
+    def _display_compound_table(self, compound_i, chem, cid, extra_rows=None):
+        syns = chem['cmpdsynonym']
+        name = chem['cmpdname']
+        inchi = chem['inchi']
+        cas = chem['cas']
+        syns_num_to_disp = 10
+        top_syns_str = ', '.join(f'"{syn}"' for syn in syns[:syns_num_to_disp])
+
+        table = Table(
+            title=f"[bold cyan]Compound {compound_i}: {name}[/bold cyan] (CID: [yellow]{cid}[/yellow])",
+            show_header=False,
+            expand=True
+        )
+
+        if extra_rows:
+            for row in extra_rows:
+                table.add_row(*row)
+
+        table.add_row(f"First {syns_num_to_disp} synonyms", f"{top_syns_str}")
+        table.add_row("InChI", f"{inchi}")
+        table.add_row("CAS", f"{cas}")
+        self.print(table)
+    
+
+    def _display_compare_table(self, title, chem1, chem2, display_compound=None):
+        if display_compound is None:
+            display_compound = self._display_compound_table
+
+        self.print(Rule(title))
+
+        display_compound(1, chem1, chem1['cid'])
+        self.print(Rule())
+        display_compound(2, chem2, chem2['cid'])
+    
+
+    def test(self):
+        names = set()
+        for chem in self.chems_unmapped:
+            names.add(chem['cmpdname'])
+        
+        names = sorted(list(names), key=lambda x: len(x))
+        with open('names_ord.txt', 'w') as f:
+            names_str = '\n'.join(names)
+            f.write(names_str)
 
 
 

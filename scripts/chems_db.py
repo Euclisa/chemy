@@ -88,6 +88,11 @@ class ChemsDB:
                 return [json.loads(x) for x in content.split('\n')]
     
 
+    def _load_jsonl_map(self, filename, key, value):
+        entries = self._load_jsonl(filename)
+        return {entry[key]: entry[value] for entry in entries}
+    
+
     def _apply_sorting_prefs(self, entries, sorting_prefs):
         sorting_prefs = sorting_prefs
         if sorting_prefs is not None:
@@ -154,6 +159,11 @@ class ChemsDB:
             with open(filename, 'w') as f:
                 for entry in entries:
                     f.write(json.dumps(entry) + '\n')
+    
+
+    def _write_jsonl_map(self, in_map, key, value, filename, backup=True, no_sort=False):
+        entries = [{key: k, value: v} for k, v in in_map.items()]
+        self._write_jsonl(entries, filename, backup=backup, no_sort=no_sort)
     
 
     def print(self, message=""):
