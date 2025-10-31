@@ -44,7 +44,8 @@ class ChemsConflicts(ChemsReactionProperties):
         self.print("  c0   - discard both compounds")
         self.print("  c1   - retain 1st compound")
         self.print("  c2   - retain 2nd compound")
-        self.print("  exit - save all previous decisions and abort")
+        self.print("  save - save all previous decisions and abort")
+        self.print("  exit - abort without saving")
         self.print()
 
         def display_conflict(conflict_i, conflict_norm_name, cid1, cid2):
@@ -70,6 +71,8 @@ class ChemsConflicts(ChemsReactionProperties):
         conflict_map = dict()
         cids_to_delete = set()
         cids_syns_to_del = dict()
+        stop = False
+        save = True
         try:
             for chem in self.chems:
                 cid = chem['cid']
@@ -78,7 +81,6 @@ class ChemsConflicts(ChemsReactionProperties):
                 for norm_name in norm_syns:
                     conflict_map.setdefault(norm_name, []).append(cid)
             
-            stop = False
             conflict_map = {name: cids for name, cids in conflict_map.items() if len(cids) > 1}
             if only_relevant:
                 relevant_names = self._get_parsed_reactions_participants_norm_names()
@@ -94,9 +96,9 @@ class ChemsConflicts(ChemsReactionProperties):
                     continue
 
                 while len(conflict_cids) >= 2:
+                    if conflict_cids[0] > conflict_cids[1]:
+                        conflict_cids[0], conflict_cids[1] = conflict_cids[1], conflict_cids[0]
                     cid1, cid2 = conflict_cids[0], conflict_cids[1]
-                    if cid1 > cid2:
-                        cid1, cid2 = cid2, cid1
 
                     conflict_i += 1
 
@@ -135,19 +137,24 @@ class ChemsConflicts(ChemsReactionProperties):
                         cids_to_delete.add(cid1)
                         conflict_cids.pop(0)
                         self.print(f"* Removed compound with CID {cid1}")
+                    elif decision == 'save':
+                        stop = True
+                        break
                     elif decision == 'exit':
                         stop = True
+                        save = False
                         break
                     else:
                         self.print(f"[red]!!! Invalid decision '{decision}' !!![/red]")
                         continue
-                    
-                    self.print()
                 
                 if stop:
                     break
 
         finally:
+            if not save:
+                return
+
             self._update_cids_blacklist(cids_to_delete)
             self.__update_cids_filtered_synonyms(cids_syns_to_del)
 
@@ -159,12 +166,15 @@ class ChemsConflicts(ChemsReactionProperties):
                         syns_to_del = cids_syns_to_del[cid]
                         chem['cmpdsynonym'] = list(filter(lambda x: self._normalize_chem_name(x, is_clean=True) not in syns_to_del, chem['cmpdsynonym']))
                         if not chem['cmpdsynonym']:
+                            self.log(f"Removed compound {cid} (no synonyms left)")
                             continue
+
                         if self._normalize_chem_name(chem['cmpdname'], is_clean=True) in syns_to_del:
                             if chem['cid'] > 0:
                                 chem['cmpdname'] = chem['cmpdsynonym'][0]
                             else:
                                 chem['cmpdname'] = self.unknown_name_ph
+                                chem['cmpdsynonym'] = []
                     resolved_chems.append(chem)
 
             self._update_chems(resolved_chems)
@@ -177,80 +187,84 @@ class ChemsConflicts(ChemsReactionProperties):
         self.print("  m2   - retain second compound with merge")
         self.print("  c1   - retain first compound without merge")
         self.print("  c2   - retain second compound without merge")
-        self.print("  exit - save all previous decisions and abort")
+        self.print("  save - save all previous decisions and abort")
+        self.print("  exit - abort without saving")
         self.print()
 
         conflict_map = dict()
         for chem in self.chems:
             cid = chem['cid']
-
-            try:
-                inchi_norm = self._strip_inchi_layers(chem['inchi_snone'])
-            except Exception as e:
-                self.log_warn(f"Failed to normalize inchi for {chem['cmpdname']} (CID {cid}): {e}")
-                continue
-                
+            inchi_norm = self._get_chem_norm_inchi(chem)    
             conflict_map.setdefault(inchi_norm, []).append(cid)
         
         conflict_map = {inchi: cids for inchi, cids in conflict_map.items() if len(cids) > 1}
 
-        self.print()
         self.print(f"{len(conflict_map)} conflicting inchi pending resolution")
         self.print()
 
         cids_to_delete = set()
-        
+        stop = False
+        save = True
         try:
             conflict_i = 0
-            stop = False
             for conflict_inchi, conflict_cids in conflict_map.items():
                 while len(conflict_cids) >= 2:
+                    if conflict_cids[0] > conflict_cids[1]:
+                        conflict_cids[0], conflict_cids[1] = conflict_cids[1], conflict_cids[0]
                     cid1, cid2 = conflict_cids[0], conflict_cids[1]
-                    if cid1 > cid2:
-                        cid1, cid2 = cid2, cid1
 
                     chem1, chem2 = self.cid_chem_map[cid1], self.cid_chem_map[cid2]
                     conflict_i += 1
                     
                     # if one of cids < 0 then delete the one (it must be cid1)
                     if cid1*cid2 > 0:
-                        self._display_conflict_table_cid(conflict_i, conflict_inchi, cid1, cid2)
-                        decision = input("* Decision: ").strip()
+                        if cid1 > 0:
+                            if len(chem1['inchi']) > len(chem2['inchi']):
+                                decision = 'm2'
+                            else:
+                                decision = 'm1'
+                        else:
+                            self._display_conflict_table_cid(conflict_i, conflict_inchi, cid1, cid2)
+                            decision = input("* Decision: ").strip()
                     else:
                         decision = 'c2'
 
-                    merged_list = self._merge_synonyms(chem1, chem2)
                     if decision == 'm1':
-                        chem1['cmpdsynonym'] = merged_list
+                        self._merge_chems(chem1, chem2)
                         conflict_cids.pop(1)
                         cids_to_delete.add(cid2)
                         self.log(f"Discarded compound with CID {cid2}")
                     elif decision == 'm2':
-                        chem2['cmpdsynonym'] = merged_list
-                        conflict_cids.pop(1)
+                        self._merge_chems(chem2, chem1)
+                        conflict_cids.pop(0)
                         cids_to_delete.add(cid1)
-                        self.log(f"Discarded compound with CID {cid2}")
+                        self.log(f"Discarded compound with CID {cid1}")
                     elif decision == 'c1':
                         conflict_cids.pop(1)
                         cids_to_delete.add(cid2)
                         self.log(f"Discarded compound with CID {cid2}")
                     elif decision == 'c2':
-                        conflict_cids.pop(1)
+                        conflict_cids.pop(0)
                         cids_to_delete.add(cid1)
-                        self.log(f"Discarded compound with CID {cid2}")
+                        self.log(f"Discarded compound with CID {cid1}")
+                    elif decision == 'save':
+                        stop = True
+                        break
                     elif decision == 'exit':
                         stop = True
+                        save = False
                         break
                     else:
                         self.print(f"[red]!!! Invalid decision '{decision}' !!![/red]")
                         continue
-                        
-                    self.print()
                     
                 if stop:
                     break
         
         finally:
+            if not save:
+                return
+
             updated_chems = [chem for chem in self.chems if chem['cid'] not in cids_to_delete]
 
             self._update_cids_blacklist(cids_to_delete)

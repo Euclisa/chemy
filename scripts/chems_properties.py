@@ -53,7 +53,7 @@ class ChemsProperties(ChemsDB):
 
         self.chems_categories_fn = os.path.join(self.chems_properties_dir, "chems_categories.jsonl")
 
-        self._file_sorting_prefs[self.chems_mapped_fn] = 'complexity'
+        self._file_sorting_prefs[self.chems_mapped_fn] = 'bertz_complexity'
         self._file_sorting_prefs[self.chems_unmapped_fn] = 'cid'
         
         self._file_sorting_prefs[self.chems_categories_fn] = 'cid'
@@ -203,22 +203,39 @@ class ChemsProperties(ChemsDB):
         for name, attr in inspect.getmembers(type(self)):
             if isinstance(attr, cached_property) and name in self.__dict__:
                 delattr(self, name)
+    
+
+    def _is_chem_mapped(self, chem):
+        return chem['cid'] > 0
+
+
+    def _get_mapped_chems_list(self, chems):
+        return [chem for chem in chems if self._is_chem_mapped(chem)]
+    
+    def _get_unmapped_chems_list(self, chems):
+        return [chem for chem in chems if not self._is_chem_mapped(chem)]
 
 
     def _update_chems(self, new_chems):
 
-        mapped_chems = [chem for chem in new_chems if chem.get('cid', 0) > 0]
+        mapped_chems = self._get_mapped_chems_list(new_chems)
         self._write_jsonl(mapped_chems, self.chems_mapped_fn)
 
-        unmapped_chems = [chem for chem in new_chems if chem.get('cid', 0) < 0]
+        unmapped_chems = self._get_unmapped_chems_list(new_chems)
         self._write_jsonl(unmapped_chems, self.chems_unmapped_fn)
 
         self.__clear_runtime_chems_properties()
     
+    def _update_mapped_chems(self, new_chems):
+
+        mapped_chems = self._get_mapped_chems_list(new_chems)
+        self._write_jsonl(mapped_chems, self.chems_mapped_fn)
+
+        self.__clear_runtime_chems_properties()
 
     def _update_unmapped_chems(self, new_chems):
 
-        unmapped_chems = [chem for chem in new_chems if chem.get('cid', 0) < 0]
+        unmapped_chems = self._get_unmapped_chems_list(new_chems)
         self._write_jsonl(unmapped_chems, self.chems_unmapped_fn)
 
         self.__clear_runtime_chems_properties()
@@ -489,10 +506,10 @@ class ChemsProperties(ChemsDB):
         return True
 
 
-    def _merge_synonyms(self, chem1, chem2):
+    def _merge_chems(self, chem_target, chem_other):
         result_synonyms = dict()
-        synonyms1 = chem1['cmpdsynonym']
-        synonyms2 = chem2['cmpdsynonym']
+        synonyms1 = chem_target['cmpdsynonym']
+        synonyms2 = chem_other['cmpdsynonym']
     
         if len(synonyms1) > len(synonyms2):
             synonyms1, synonyms2 = synonyms2, synonyms1
@@ -504,7 +521,8 @@ class ChemsProperties(ChemsDB):
         for i in range(len(synonyms1), len(synonyms2)):
             result_synonyms[synonyms2[i]] = 0
         
-        return list(dict.fromkeys(result_synonyms))
+        chem_target['cmpdsynonym'] = list(dict.fromkeys(result_synonyms))
+        chem_target['cas'] = list(set(chem_target['cas']) | set(chem_other['cas']))
 
 
 

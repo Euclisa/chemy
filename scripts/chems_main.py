@@ -90,6 +90,9 @@ class ChemsMain(ChemsSql, ChemsPropertiesLLM, ChemsOrdParse):
         
         res_chems = [chem for chem in self.chems if chem['cid'] < 0 and cids_connectivity.get(chem['cid'], 0) >= connectivity_degree_thr]
         self._update_unmapped_chems(res_chems)
+    
+
+    
         
 
         

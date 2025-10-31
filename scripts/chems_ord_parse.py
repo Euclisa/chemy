@@ -335,7 +335,7 @@ class ChemsOrdParse(ChemsReactionProperties):
 
     def parse_raw_ord_reactions(self, ord_reactions_fn, balance=True):
         smiles_cid_ord_map = self._load_jsonl_map(self.smiles_cid_map_ord_fn, 'smiles', 'cid')
-        smiles_cid_ord_map = {k: v for k, v in smiles_cid_ord_map.items() if v != self.null_cid}
+        smiles_cid_ord_map = {smiles: cid for smiles, cid in smiles_cid_ord_map.items() if cid != self.null_cid and cid in self.cid_chem_map}
 
         unmapped_smiles = dict()
         smiles_name_map = dict()

@@ -222,7 +222,7 @@ class ChemsFetchPubchem(ChemsProperties):
         fields_to_keep = ['cid', 'cmpdname', 'cmpdsynonym', 'mf', 'mw', 'complexity', 'smiles', 'inchi', 'inchikey', 'charge', 'annotation', 'iupacname']
         curr_chem = None
         total_incoming = 0
-        res_chems = [] if override else self.chems.copy()
+        res_chems = [] if override else list(self.chems_mapped)
         unique_cids = set(chem['cid'] for chem in res_chems)
         initial_chems_num = len(res_chems)
         with open(dump_fn) as f_in:
@@ -241,22 +241,20 @@ class ChemsFetchPubchem(ChemsProperties):
                                     if not isinstance(curr_chem['cmpdsynonym'], list):
                                         curr_chem['cmpdsynonym'] = [curr_chem['cmpdsynonym']]
                                     
-                                    if cid in unique_cids:
-                                        continue
-
-                                    curr_chem = self._process_chem_single(curr_chem, force=True)
-                                    if curr_chem:
-                                        res_chems.append(curr_chem)
-                                        unique_cids.add(cid)
+                                    if cid not in unique_cids:
+                                        curr_chem = self._process_chem_single(curr_chem, force=True)
+                                        if curr_chem:
+                                            res_chems.append(curr_chem)
+                                            unique_cids.add(cid)
 
                             curr_chem = dict()
                         curr_chem[field] = json.loads('{' + line.strip().strip(',') + '}')[field]
         
-        self._update_chems(res_chems)
+        self._update_mapped_chems(res_chems)
 
         print(f"Initial chems num: {initial_chems_num}; Incoming chems processed: {total_incoming}; Total written: {len(res_chems)}")
 
 
 if __name__ == "__main__":
     chems = ChemsFetchPubchem('data/')
-    chems.extract_pubchem_dump_to_chems('pubchem_big.json')
+    chems.extract_pubchem_dump_to_chems('pubchem_big.json', override=True)
