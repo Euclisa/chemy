@@ -28,14 +28,12 @@ class ChemsMisc(ChemsPropertiesUnified):
         self._file_sorting_prefs[self.unbalancing_cids_fn] = ('count', True)
     
 
-    def get_background_substances(self, k):
-        reactions = self._load_jsonl(self.reactions_parsed_fn)
-        
+    def get_background_substances(self, k):        
         reagents_cids_count = dict()
         for cid in self.cid_chem_map:
             reagents_cids_count[cid] = 0
         
-        for react in reactions:
+        for react in self.parsed_reactions:
             for cid in [x['cid'] for x in react['reagents']]:
                 reagents_cids_count[cid] += 1
         
@@ -93,31 +91,30 @@ class ChemsMisc(ChemsPropertiesUnified):
         unbalanced_cids_cnt = dict()
         balanced_cids = set()
         cid_to_name = dict()
-        with open(self.reactions_parsed_fn) as f:
-            for line in f:
-                entry = json.loads(line)
-                cids = set()
 
-                for chem in entry['reagents']:
-                    cid = chem['cid']
-                    name = chem['original_name']
-                    cid_to_name[cid] = name
-                    cids.add(cid)
-                
-                for chem in entry['products']:
-                    cid = chem['cid']
-                    name = chem['original_name']
-                    cid_to_name[cid] = name
-                    cids.add(cid)
+        for entry in self.parsed_reactions:
+            cids = set()
 
-                if entry['balanced']:
-                    balanced_cids.update(cids)
-                else:
-                    unbalanced_cids.update(cids)
-                    for cid in cids:
-                        if cid not in unbalanced_cids_cnt:
-                            unbalanced_cids_cnt[cid] = 0
-                        unbalanced_cids_cnt[cid] += 1
+            for chem in entry['reagents']:
+                cid = chem['cid']
+                name = chem['original_name']
+                cid_to_name[cid] = name
+                cids.add(cid)
+            
+            for chem in entry['products']:
+                cid = chem['cid']
+                name = chem['original_name']
+                cid_to_name[cid] = name
+                cids.add(cid)
+
+            if self._is_react_balanced(entry):
+                balanced_cids.update(cids)
+            else:
+                unbalanced_cids.update(cids)
+                for cid in cids:
+                    if cid not in unbalanced_cids_cnt:
+                        unbalanced_cids_cnt[cid] = 0
+                    unbalanced_cids_cnt[cid] += 1
         
         res_cids = unbalanced_cids - balanced_cids
         res_entries = []

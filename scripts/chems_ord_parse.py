@@ -333,7 +333,7 @@ class ChemsOrdParse(ChemsReactionProperties):
         self.log(f"Total fixed: {fixed_cnt}")
     
 
-    def parse_raw_ord_reactions(self, ord_reactions_fn, balance=True):
+    def parse_raw_ord_reactions(self, ord_reactions_fn):
         smiles_cid_ord_map = self._load_jsonl_map(self.smiles_cid_map_ord_fn, 'smiles', 'cid')
         smiles_cid_ord_map = {smiles: cid for smiles, cid in smiles_cid_ord_map.items() if cid != self.null_cid and cid in self.cid_chem_map}
 
@@ -469,9 +469,6 @@ class ChemsOrdParse(ChemsReactionProperties):
 
                     if not self._validate_reaction(parsed_reaction):
                         continue
-
-                    if balance:
-                        self._balance_reaction(parsed_reaction)
 
                     parsed_details["rid"] = parsed_reaction['rid']
                     parsed_details["source"] = "ord"

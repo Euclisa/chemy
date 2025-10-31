@@ -1,12 +1,15 @@
 import os
 import numpy as np
 
+from functools import cached_property
+
 from chems_solubility import ChemsSolubility
 from chems_crc import ChemsCRC
 from chems_hazards import ChemsHazards
+from chems_ord_parse import ChemsOrdParse
 
 
-class ChemsPropertiesUnified(ChemsSolubility, ChemsCRC, ChemsHazards):
+class ChemsPropertiesUnified(ChemsOrdParse, ChemsSolubility, ChemsCRC, ChemsHazards):
     
     def __init__(self, data_dir):
         super().__init__(data_dir)
@@ -19,6 +22,142 @@ class ChemsPropertiesUnified(ChemsSolubility, ChemsCRC, ChemsHazards):
 
         self.property_max_synonyms = 7
         self.property_max_cas = 5
+    
+
+    @cached_property
+    def parsed_reactions(self):
+        ord_reactions = self._load_jsonl(self.reactions_parsed_ord_fn)
+        llm_reactions = self._load_jsonl(self.reactions_parsed_llm_fn)
+        parsed_reactions = {react['rid']: react for react in llm_reactions + ord_reactions}   # order matters
+        return tuple(parsed_reactions.values())
+    
+    @cached_property
+    def parsed_reactions_balanced(self):
+        return tuple(react for react in self.parsed_reactions if react['rid'] in self.reactions_balance)
+    
+
+    @cached_property
+    def reactions_details(self):
+        ord_details = self._load_jsonl(self.reactions_details_ord_fn)
+        llm_details = self._load_jsonl(self.reactions_details_llm_fn)
+        parsed_reactions = {entry['rid']: entry for entry in llm_details + ord_details}   # order matters
+        return tuple(parsed_reactions.values())
+    
+
+    def _write_parsed_reactions(self, reactions):
+        ord_reactions = []
+        llm_reactions = []
+        for react in reactions:
+            if react['source'] == self.ord_source:
+                ord_reactions.append(react)
+            else:
+                llm_reactions.append(react)
+        
+        self._write_jsonl(ord_reactions, self.reactions_parsed_ord_fn)
+        self._write_jsonl(llm_reactions, self.reactions_parsed_llm_fn)
+
+    
+    def merge_parsed_files(self, out_fn, *parsed_reactions_files):
+        rid_reaction = dict()
+        total_reactions = 0
+        for fn in parsed_reactions_files:
+            reactions = self._load_jsonl(fn)
+            
+            total_reactions += len(reactions)
+            
+            for react in reactions:
+                rid = react['rid']
+                if rid not in rid_reaction:
+                    rid_reaction[rid] = react
+                else:
+                    old_react = rid_reaction[rid]
+                    old_source = old_react.get('source')
+                    new_source = react.get('source')
+                    new_source_priority = self.sources_priority.get(new_source, -1)
+                    old_source_priority = self.sources_priority.get(old_source, -1)
+                    if new_source_priority > old_source_priority:
+                        rid_reaction[rid] = react
+
+        reactions_res = list(rid_reaction.values())
+        self._write_jsonl(reactions_res, out_fn, backup=False)
+    
+
+    def generate_edges(self):        
+        edge_reaction_id_map = dict()
+        for react in self._rich_track(self.parsed_reactions, "Generating edges..."):
+            react_id = react['rid']
+            for r in react['reagents']:
+                r_cid = r['cid']
+                for p in react['products']:
+                    p_cid = p['cid']
+                    edge = (r_cid, p_cid)
+                    if edge not in edge_reaction_id_map:
+                        edge_reaction_id_map[edge] = []
+                    edge_reaction_id_map[edge].append(react_id)
+        
+        def get_eid(edge):
+            source = edge[0]
+            target = edge[1]
+            return ((source+target)*target) % 2**64
+        
+        edges = []
+        for edge in edge_reaction_id_map:
+            entry = {'eid': get_eid(edge), 'source': edge[0], 'target': edge[1], 'reactions': edge_reaction_id_map[edge]}
+            edges.append(entry)
+
+        self._write_jsonl(edges, self.chems_edges_fn, backup=False)
+        self.log(f"Generated {len(edge_reaction_id_map)} edges")
+    
+
+    def discard_orphaned_unmapped_chems(self, connectivity_degree_thr=1):
+        reactions = self._load_jsonl(self.reactions_parsed_ord_fn)
+        cids_connectivity = dict()
+        for reaction in reactions:
+            all_cids = self._get_all_reaction_cids(reaction)
+            for cid in all_cids:
+                cids_connectivity[cid] = cids_connectivity.setdefault(cid, 0) + 1
+        
+        res_chems = [chem for chem in self.chems if chem['cid'] < 0 and cids_connectivity.get(chem['cid'], 0) >= connectivity_degree_thr]
+        self._update_unmapped_chems(res_chems)
+    
+
+    def balance_parsed_reactions(self, reactions_parsed_fn=None):
+        if reactions_parsed_fn is None:
+            reactions = self._load_jsonl(self.reactions_parsed_llm_fn)+self._load_jsonl(self.reactions_parsed_ord_fn)
+        else:
+            reactions = self._load_jsonl(reactions_parsed_fn)
+        
+        balances = self._load_jsonl(self.reactions_balance_fn)
+        balanced_rids = set(entry['rid'] for entry in balances)
+        
+        balanced_cnt = 0
+        for react in self._rich_track(reactions, "Balancing parsed reactions"):
+            if react['rid'] not in balanced_rids:
+                bal = self._balance_reaction(react)
+                if bal:
+                    balances.append(bal)
+                    balanced_cnt += 1
+
+        self._write_jsonl(balances, self.reactions_balance_fn)        
+        self.log(f"Processed {len(reactions)}; balanced {balanced_cnt}; total balanced: {len(balances)}")
+    
+
+    def _get_chems_reactions_occurence(self, reactions=None):
+        if reactions is None:
+            reactions = self.parsed_reactions
+        else:
+            reactions = reactions
+
+        chem_reactions_occurence = dict()
+        for chem in self.chems:
+            chem_reactions_occurence[chem['cid']] = 0
+
+        for react in reactions:
+            all_cids = self._get_all_reaction_cids(react)
+            for cid in all_cids:
+                chem_reactions_occurence[cid] += 1
+        
+        return chem_reactions_occurence
     
 
     def compile_chems_properties(self):
@@ -144,11 +283,19 @@ class ChemsPropertiesUnified(ChemsSolubility, ChemsCRC, ChemsHazards):
         curiosity_entries = [{'cid': cid, 'curiosity': curiosity / max_curiosity} for cid, curiosity in cid_to_curiosity.items()]
 
         self._write_jsonl(curiosity_entries, self.chems_curiosity_fn)
+    
+
+    def _get_parsed_reactions_participants_norm_names(self):
+        norm_names = set()
+        for react in self.parsed_reactions:
+            norm_names.update(entry['norm_name'] for entry in react['reagents']+react['products'])
+        
+        return norm_names
 
 
 
 
 if __name__ == "__main__":
-    props_compile = ChemsPropertiesUnified('data/')
-    props_compile.generate_curiosity_index()
+    unified = ChemsPropertiesUnified('data/')
+    unified.test()
             

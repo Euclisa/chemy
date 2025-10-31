@@ -122,17 +122,13 @@ class ChemsSql(ChemsPropertiesUnified):
         "INSERT INTO background_compounds (cid) " \
         "VALUES %s"
         execute_values(cur, sql, background_cids)
-
-
-        reactions = self._load_jsonl(self.reactions_parsed_fn)
-        details = self._load_jsonl(self.reactions_details_fn)
         
         rid_local_id_map = dict()
-        for i, react in enumerate(reactions):
+        for i, react in enumerate(self.parsed_reactions):
             rid_local_id_map[react['rid']] = i+1
         
         rid_details_map = dict()
-        for entry in details:
+        for entry in self.reactions_details:
             rid_details_map[entry['rid']] = entry
         
         
@@ -154,9 +150,9 @@ class ChemsSql(ChemsPropertiesUnified):
         sql_details = \
         "INSERT INTO reaction_details (rid, doi, patent, description, source, confidence) " \
         "VALUES %s"
-        execute_values(cur, sql, [(x['rid'], x['complexity'], x['source'], x['balanced'], x['confidence']) for x in reactions])
-        execute_values(cur, sql_reactants, [(x['cid'], react['rid']) for react in reactions for x in react['reagents']])
-        execute_values(cur, sql_products, [(x['cid'], react['rid']) for react in reactions for x in react['products']])
+        execute_values(cur, sql, [(x['rid'], x['complexity'], x['source'], self._is_react_balanced(x), x['confidence']) for x in self.parsed_reactions])
+        execute_values(cur, sql_reactants, [(x['cid'], react['rid']) for react in self.parsed_reactions for x in react['reagents']])
+        execute_values(cur, sql_products, [(x['cid'], react['rid']) for react in self.parsed_reactions for x in react['products']])
         execute_values(cur, sql_solvents, [(x['cid'], rid) for rid in rid_details_map for x in rid_details_map[rid]['solvents']  if rid in rid_local_id_map])
         execute_values(cur, sql_catalysts, [(x['cid'], rid) for rid in rid_details_map for x in rid_details_map[rid]['catalysts'] if rid in rid_local_id_map])
         execute_values(cur, sql_details, [(rid, rid_details_map[rid]['provenance']['doi'], rid_details_map[rid]['provenance']['patent'], rid_details_map[rid]['description'], rid_details_map[rid]['source'], rid_details_map[rid]['confidence']) for rid in rid_details_map if rid in rid_local_id_map])

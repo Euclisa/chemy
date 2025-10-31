@@ -587,7 +587,7 @@ class ChemsLLMFetch(ChemsPropertiesUnified):
 
                 fixed_reactions = list(map(lambda react: self._parse_reaction_scheme(react, balance=True)[0], response))
                 for i, react in enumerate(fixed_reactions):
-                    if not react or not react['balanced']:
+                    if not react or not self._is_react_balanced(react):
                         continue
 
                     result.append({'old_rid': reactions[i]['rid'], 'fix': react})
@@ -618,8 +618,8 @@ class ChemsLLMFetch(ChemsPropertiesUnified):
     def fix_unbalanced_reactions(self, max_workers=1):
         processed = self.__get_processed_entries(self.reactions_parsed_fixed_fn, 'old_rid')
 
-        reactions = sorted(self._load_jsonl(self.reactions_parsed_fn), key=lambda r: r['complexity'])
-        reactions_staged = {react['rid']: react for react in reactions if not react['balanced'] and react['rid'] not in processed}
+        reactions = sorted(list(self.parsed_reactions), key=lambda r: r['complexity'])
+        reactions_staged = {react['rid']: react for react in reactions if not self._is_react_balanced(react) and react['rid'] not in processed}
 
         REACTIONS_BATCH_SIZE = 5
         self.__submit_entries_to_llm(self.reactions_parsed_fixed_fn, reactions_staged, max_workers, self.__fix_unbalanced_reactions,

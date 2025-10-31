@@ -22,6 +22,8 @@ class ChemsPropertiesLLM(ChemsReactionProperties):
         self.products_wiki_raw_reactions_fn = os.path.join(self.data_dir, 'raw_reactions', 'wiki_products_raw_reactions.jsonl')
         self.products_annot_raw_reactions_fn = os.path.join(self.data_dir, 'raw_reactions', 'annotated_products_raw_reactions.jsonl')
 
+        self.reactions_parsed_fixed_fn = os.path.join(self.parsed_reactions_dir, 'reactions_parsed_fixed.jsonl')
+
         self.reactions_parsed_llm_fn = os.path.join(self.parsed_reactions_dir, 'llm')
         os.makedirs(self.reactions_parsed_llm_fn, exist_ok=True)
 
@@ -50,7 +52,7 @@ class ChemsPropertiesLLM(ChemsReactionProperties):
         self.sources_priority[self.grok] = 3
     
 
-    def _parse_reaction_scheme(self, reaction_str: str, balance=True):
+    def _parse_reaction_scheme(self, reaction_str: str):
         parts = reaction_str.split('->')
         if len(parts) != 2:
             return None, set()
@@ -97,9 +99,6 @@ class ChemsPropertiesLLM(ChemsReactionProperties):
 
         reaction = {'reagents': reagents, 'products': products}
         reaction = self._assemble_reaction(reaction)
-
-        if balance:
-            self._balance_reaction(reaction)
 
         return reaction, unmapped_names
     

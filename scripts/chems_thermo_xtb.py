@@ -422,16 +422,14 @@ class ChemsThermoXtb(ChemsThermo):
     
 
     def compute_reactions_thermo_xtb(self):
-        reactions = self._load_jsonl(self.reactions_parsed_fn)
         thermo = self._load_jsonl(self.chems_thermo_xtb_fn)
         cid_to_thermo = {th['cid']: th for th in thermo}
 
         KCAL_PER_HARTREE = 627.5094740631
 
         with open(self.reactions_thermo_xtb_fn, 'w') as f:
-            for react in reactions:
-                if not react['balanced']:
-                    continue
+            for react in self.parsed_reactions_balanced:
+                balance = self.reactions_balance[react['rid']]
                 
                 def compute_value(value):
                     def compute_side(side, value):
@@ -441,7 +439,7 @@ class ChemsThermoXtb(ChemsThermo):
                             if cid not in cid_to_thermo or cid_to_thermo[cid][value] is None:
                                 return None
 
-                            res += entry['coeff'] * cid_to_thermo[entry['cid']][value]
+                            res += balance[cid] * cid_to_thermo[entry['cid']][value]
                         
                         return res
 

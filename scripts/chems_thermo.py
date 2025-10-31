@@ -1,10 +1,10 @@
 import os
 from rdkit import Chem
 
-from chems_reaction_properties import ChemsReactionProperties
+from chems_properties_unified import ChemsPropertiesUnified
 
 
-class ChemsThermo(ChemsReactionProperties):
+class ChemsThermo(ChemsPropertiesUnified):
     def __init__(self, data_dir):
         super().__init__(data_dir)
 

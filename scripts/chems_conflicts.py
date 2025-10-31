@@ -1,12 +1,7 @@
-import re
-
-from rich.table import Table
-from rich.rule import Rule
-
-from chems_reaction_properties import ChemsReactionProperties
+from chems_properties_unified import ChemsPropertiesUnified
 
 
-class ChemsConflicts(ChemsReactionProperties):
+class ChemsConflicts(ChemsPropertiesUnified):
 
     def __init__(self, data_dir):
         super().__init__(data_dir)
@@ -274,4 +269,4 @@ class ChemsConflicts(ChemsReactionProperties):
 
 if __name__ == "__main__":
     synonyms = ChemsConflicts('data/')
-    synonyms.resolve_conflicting_inchi()
+    synonyms.resolve_conflicting_synonyms()

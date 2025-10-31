@@ -70,11 +70,6 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
 
         current_thermo_map = {x['rid']: x['estimates'] for x in current_thermo}
 
-        reactions = [
-            r for r in self._load_jsonl(self.reactions_parsed_fn)
-            if r['balanced']
-        ]
-
         TARGET_ESTIMATES_NUM = 10
         REACTIONS_BATCH_SIZE = 10
 
@@ -91,7 +86,7 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
             self._write_jsonl(result_thermo, self.reactions_thermo_llm_fn)
 
         def missing_estimates():
-            return [r for r in reactions if len(current_thermo_map.get(r['rid'], [])) < TARGET_ESTIMATES_NUM]
+            return [r for r in self.parsed_reactions_balanced if len(current_thermo_map.get(r['rid'], [])) < TARGET_ESTIMATES_NUM]
 
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -197,11 +192,10 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
         thermo_entries = self._load_jsonl(self.reactions_thermo_llm_fn)
         thermo_map = {entry['rid']: entry for entry in thermo_entries}
 
-        reactions = self._load_jsonl(self.reactions_parsed_fn)
-        chem_reactions_occurence = self._get_chems_reactions_occurence(reactions)
+        chem_reactions_occurence = self._get_chems_reactions_occurence(self.parsed_reactions)
 
         def reactions_filter(react):
-            if react['rid'] not in thermo_map or not react['balanced']:
+            if react['rid'] not in thermo_map:
                 return False
             
             CHEM_REACT_OCCURENCE_THR = 3
@@ -212,7 +206,7 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
 
             return True
         
-        reactions = list(filter(reactions_filter, reactions))
+        reactions = list(filter(reactions_filter, self.parsed_reactions_balanced))
 
         cid_to_index = dict()
         cid_to_react_i = dict()
@@ -233,17 +227,18 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
         for cid, cid_i in cid_to_index.items():
             for react_i in cid_to_react_i[cid]:
                 reaction = reactions[react_i]
+                balance = self.reactions_balance[reaction['rid']]
                 reaction_thermo_mean = thermo_map[reaction['rid']]['mean']
                 reaction_thermo_estimates = thermo_map[reaction['rid']]['estimates']
 
                 def get_cid_reaction_coeff(reaction, cid):
                     for r in reaction['reagents']:
                         if r['cid'] == cid:
-                            return -r['coeff']
+                            return -balance[cid]
 
                     for p in reaction['products']:
                         if p['cid'] == cid:
-                            return p['coeff']
+                            return balance[cid]
                     
                     raise Exception(f"CID {cid} not found in reaction with RID: {reaction['rid']}")
                 
@@ -251,11 +246,11 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
 
                 for reagent in reaction['reagents']:
                     reagent_cid_i = cid_to_index[reagent['cid']]
-                    A[cid_i, reagent_cid_i] -= reagent['coeff'] * cid_reaction_coeff * len(reaction_thermo_estimates)
+                    A[cid_i, reagent_cid_i] -= balance[cid] * cid_reaction_coeff * len(reaction_thermo_estimates)
                 
                 for product in reaction['products']:
                     product_cid_i = cid_to_index[product['cid']]
-                    A[cid_i, product_cid_i] += product['coeff'] * cid_reaction_coeff * len(reaction_thermo_estimates)
+                    A[cid_i, product_cid_i] += balance[cid] * cid_reaction_coeff * len(reaction_thermo_estimates)
                 
                 for est in reaction_thermo_estimates:
                     b_dH[cid_i] += est['dH'] * cid_reaction_coeff / normalize_mean(reaction_thermo_mean['dH'])
@@ -280,11 +275,12 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
 
 
         def compute_reaction_thermo(reaction, value_mean, cid_to_value):
+            balance = self.reactions_balance[reaction['rid']]
             value = 0
             for r in reaction['reagents']:
-                value -= r['coeff'] * cid_to_value[r['cid']] * normalize_mean(value_mean)
+                value -= balance[r['cid']] * cid_to_value[r['cid']] * normalize_mean(value_mean)
             for p in reaction['products']:
-                value += p['coeff'] * cid_to_value[p['cid']] * normalize_mean(value_mean)
+                value += balance[p['cid']] * cid_to_value[p['cid']] * normalize_mean(value_mean)
             
             return value
         

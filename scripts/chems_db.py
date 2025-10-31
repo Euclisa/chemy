@@ -88,9 +88,13 @@ class ChemsDB:
                 return [json.loads(x) for x in content.split('\n')]
     
 
+    def _entries_to_map(self, entries, key, value):
+        return {entry[key]: entry[value] for entry in entries}
+    
+
     def _load_jsonl_map(self, filename, key, value):
         entries = self._load_jsonl(filename)
-        return {entry[key]: entry[value] for entry in entries}
+        return self._entries_to_map(entries, key, value)
     
 
     def _apply_sorting_prefs(self, entries, sorting_prefs):
@@ -143,6 +147,9 @@ class ChemsDB:
         
         if os.path.exists(filename) and backup:
             self.__backup_path(filename)
+        
+        if not os.path.exists(filename) and filename in self._dir_vault_prefs:
+            os.makedirs(filename, exist_ok=True)
 
         if os.path.isdir(filename):
             prefix = self._dir_vault_prefs[filename]
@@ -161,8 +168,12 @@ class ChemsDB:
                     f.write(json.dumps(entry) + '\n')
     
 
+    def _map_to_entries(self, in_map, key, value):
+        return [{key: k, value: v} for k, v in in_map.items()]
+    
+
     def _write_jsonl_map(self, in_map, key, value, filename, backup=True, no_sort=False):
-        entries = [{key: k, value: v} for k, v in in_map.items()]
+        entries = self._map_to_entries(in_map, key, value)
         self._write_jsonl(entries, filename, backup=backup, no_sort=no_sort)
     
 
