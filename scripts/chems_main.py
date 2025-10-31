@@ -92,7 +92,11 @@ class ChemsMain(ChemsSql, ChemsPropertiesLLM, ChemsOrdParse):
         self._update_unmapped_chems(res_chems)
     
 
-    
+    def test(self):
+        cids = [chem['cid'] for chem in self._load_jsonl('chems.jsonl')]
+        with open('cids_39k.txt', 'w') as f:
+            for cid in cids:
+                f.write(f"{cid}\n")
         
 
         
@@ -102,4 +106,4 @@ class ChemsMain(ChemsSql, ChemsPropertiesLLM, ChemsOrdParse):
 
 if __name__ == "__main__":
     chems = ChemsMain('data/')
-    chems.discard_orphaned_unmapped_chems()
+    chems.test()

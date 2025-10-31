@@ -154,4 +154,4 @@ class ChemsPropertiesLLM(ChemsReactionProperties):
 
 if __name__ == "__main__":
     chems_parse = ChemsPropertiesLLM('data/')
-    chems_parse.test()
+    chems_parse.parse_raw_llm_reactions()

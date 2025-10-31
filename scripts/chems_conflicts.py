@@ -91,13 +91,11 @@ class ChemsConflicts(ChemsReactionProperties):
             self.print()
             conflict_i = 0
             for norm_name in conflict_map:
-                conflict_cids = [cid for cid in conflict_map[norm_name] if cid not in cids_to_delete]
+                conflict_cids = sorted([cid for cid in conflict_map[norm_name] if cid not in cids_to_delete])
                 if len(conflict_cids) <= 1:
                     continue
 
                 while len(conflict_cids) >= 2:
-                    if conflict_cids[0] > conflict_cids[1]:
-                        conflict_cids[0], conflict_cids[1] = conflict_cids[1], conflict_cids[0]
                     cid1, cid2 = conflict_cids[0], conflict_cids[1]
 
                     conflict_i += 1
@@ -165,12 +163,12 @@ class ChemsConflicts(ChemsReactionProperties):
                     if cid in cids_syns_to_del and cids_syns_to_del[cid]:
                         syns_to_del = cids_syns_to_del[cid]
                         chem['cmpdsynonym'] = list(filter(lambda x: self._normalize_chem_name(x, is_clean=True) not in syns_to_del, chem['cmpdsynonym']))
-                        if not chem['cmpdsynonym']:
+                        if not chem['cmpdsynonym'] and self._is_chem_mapped(chem):
                             self.log(f"Removed compound {cid} (no synonyms left)")
                             continue
 
                         if self._normalize_chem_name(chem['cmpdname'], is_clean=True) in syns_to_del:
-                            if chem['cid'] > 0:
+                            if self._is_chem_mapped(chem):
                                 chem['cmpdname'] = chem['cmpdsynonym'][0]
                             else:
                                 chem['cmpdname'] = self.unknown_name_ph
@@ -197,7 +195,7 @@ class ChemsConflicts(ChemsReactionProperties):
             inchi_norm = self._get_chem_norm_inchi(chem)    
             conflict_map.setdefault(inchi_norm, []).append(cid)
         
-        conflict_map = {inchi: cids for inchi, cids in conflict_map.items() if len(cids) > 1}
+        conflict_map = {inchi: sorted(cids) for inchi, cids in conflict_map.items() if len(cids) > 1}
 
         self.print(f"{len(conflict_map)} conflicting inchi pending resolution")
         self.print()
@@ -209,8 +207,6 @@ class ChemsConflicts(ChemsReactionProperties):
             conflict_i = 0
             for conflict_inchi, conflict_cids in conflict_map.items():
                 while len(conflict_cids) >= 2:
-                    if conflict_cids[0] > conflict_cids[1]:
-                        conflict_cids[0], conflict_cids[1] = conflict_cids[1], conflict_cids[0]
                     cid1, cid2 = conflict_cids[0], conflict_cids[1]
 
                     chem1, chem2 = self.cid_chem_map[cid1], self.cid_chem_map[cid2]
@@ -278,4 +274,4 @@ class ChemsConflicts(ChemsReactionProperties):
 
 if __name__ == "__main__":
     synonyms = ChemsConflicts('data/')
-    synonyms.resolve_conflicting_synonyms()
+    synonyms.resolve_conflicting_inchi()

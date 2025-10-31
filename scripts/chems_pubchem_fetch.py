@@ -257,4 +257,4 @@ class ChemsFetchPubchem(ChemsProperties):
 
 if __name__ == "__main__":
     chems = ChemsFetchPubchem('data/')
-    chems.extract_pubchem_dump_to_chems('pubchem_big.json', override=True)
+    chems.extract_pubchem_dump_to_chems('pubchem.json', override=True)

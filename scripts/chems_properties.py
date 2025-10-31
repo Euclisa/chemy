@@ -404,7 +404,7 @@ class ChemsProperties(ChemsDB):
             'gum'
         ]
 
-        discard_word_part_pattern = '(' + '|'.join([r"\b"+word+r"\b" for word in DISCARD_WORDS_PART]) + ')'
+        discard_word_part_pattern = '(' + '|'.join([r"\b"+re.escape(word)+r"\b" for word in DISCARD_WORDS_PART]) + ')'
 
         DISCARD_WORDS_WHOLE = [
             'acetate', 'acid', 'salt', 'phosphonate', 'ester', 'amide', 'nitrile',
@@ -413,7 +413,7 @@ class ChemsProperties(ChemsDB):
             "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"
         ]
 
-        discard_word_whole_pattern = '(' + '|'.join([r"^"+word+r"$" for word in DISCARD_WORDS_WHOLE]) + ')'
+        discard_word_whole_pattern = '(' + '|'.join([r"^"+re.escape(word)+r"$" for word in DISCARD_WORDS_WHOLE]) + ')'
 
         DISCARD_PATTERNS = [
             r'[:=%<>@/\\_.#&*";?!]',
@@ -496,7 +496,7 @@ class ChemsProperties(ChemsDB):
             chem['cmpdname'] = clean_synonym(chem['cmpdname'])
 
         if chem['cmpdname'] is None or not good_name_criteria(chem['cmpdname']):
-            chem['cmpdname'] = synonyms[0].lower()
+            chem['cmpdname'] = synonyms[0]
         else:
             synonyms = [chem['cmpdname']] + synonyms
 
@@ -629,23 +629,6 @@ class ChemsProperties(ChemsDB):
                 processed_chems.append(chem)
 
         return processed_chems
-    
-
-    def _get_unique_inchikeys_chems(self, organize=False):
-        if organize:
-            return self._process_chems()
-        else:
-            unique_inchikeys_chems = dict()
-            for chem in self.chems:
-                inchikey = chem['inchikey_snone']
-                if not inchikey:
-                    raise Exception(f"Invalid InChI-key found in main compounds file. Run with 'organize=True'")
-                if inchikey in unique_inchikeys_chems:
-                    raise Exception(f"Duplicates found in main compounds file. Run with 'organize=True'")
-                unique_inchikeys_chems[inchikey] = chem
-
-            return unique_inchikeys_chems
-
 
 
     def organize_chems_file(self, force=False):
@@ -654,7 +637,8 @@ class ChemsProperties(ChemsDB):
         processed_chems = self._process_chems(force=force)
         self._update_chems(processed_chems)
 
-        print(f"Discarded {initial_chems_num - len(processed_chems)} chems")
+        self.print(f"Discarded {initial_chems_num - len(processed_chems)} chems")
+
 
     def __chem_name_to_ascii(self, chem_name_raw):
         unicode_map = {

@@ -515,8 +515,6 @@ class ChemsOrdParse(ChemsReactionProperties):
         unmapped_entries = self._load_jsonl(self.unmapped_smiles_fn)
 
         try:
-            stop = False
-
             def _process_entry(entry, skip_prompt=False):
                 smiles = entry['smiles']
 
