@@ -12,19 +12,8 @@ class ChemsMisc(ChemsPropertiesUnified):
     def __init__(self, data_dir):
         super().__init__(data_dir)
 
-        self.chems_sortings_dir = os.path.join(self.data_dir, 'misc', 'chems_sortings')
-        if not os.path.exists(self.chems_sortings_dir):
-            os.mkdir(self.chems_sortings_dir)
-
-        self.commonness_sorted_cids_fn = os.path.join(self.chems_sortings_dir, 'commonness_sorted_cids.jsonl')
-        self.complexity_sorted_cids_fn = os.path.join(self.chems_sortings_dir, 'complexity_sorted_cids.jsonl')
-        self.curiosity_sorted_cids_fn = os.path.join(self.chems_sortings_dir, 'curiosity_sorted_cids.jsonl')
-
         self.unbalancing_cids_fn = os.path.join(self.data_dir, "unbalancing_cids.jsonl")
 
-        self._file_sorting_prefs[self.commonness_sorted_cids_fn] = None
-        self._file_sorting_prefs[self.complexity_sorted_cids_fn] = None
-        self._file_sorting_prefs[self.curiosity_sorted_cids_fn] = None
         self._file_sorting_prefs[self.unbalancing_cids_fn] = ('count', True)
     
 
@@ -43,28 +32,25 @@ class ChemsMisc(ChemsPropertiesUnified):
             f.write(json.dumps(background_cids, indent=2))
     
 
-    def get_commonnes_chems_sorting(self):
+    def _get_commonnes_chems_sorting(self):
         occurence = self._get_chems_reactions_occurence()
         sorted_cids = sorted([chem['cid'] for chem in self.chems], key=lambda cid: occurence[cid])
-        self._write_jsonl(sorted_cids, self.commonness_sorted_cids_fn)
+
+        return sorted_cids
     
 
-    def get_complexity_chems_sorting(self):
-        sorted_cids = sorted([chem['cid'] for chem in self.chems], key=lambda cid: self.cid_chem_map[cid]['complexity'])
-        self._write_jsonl(sorted_cids, self.complexity_sorted_cids_fn)
+    def _get_complexity_chems_sorting(self):
+        sorted_cids = sorted([chem['cid'] for chem in self.chems], key=lambda cid: self.cid_chem_map[cid]['bertz_complexity'])
+
+        return sorted_cids
     
 
-    def get_curiosity_chems_sorting(self):
+    def _get_curiosity_chems_sorting(self):
         curiosity = self._load_jsonl(self.chems_curiosity_fn)
         cid_to_curiosity = {entry['cid']: entry['curiosity'] for entry in curiosity}
         sorted_cids = sorted([chem['cid'] for chem in self.chems], key=lambda cid: cid_to_curiosity.get(cid, 0))
-        self._write_jsonl(sorted_cids, self.curiosity_sorted_cids_fn)
-    
 
-    def get_chems_sortings(self):
-        self.get_commonnes_chems_sorting()
-        self.get_complexity_chems_sorting()
-        self.get_curiosity_chems_sorting()
+        return sorted_cids
 
     
 

@@ -160,7 +160,7 @@ class ChemsPropertiesUnified(ChemsOrdParse, ChemsSolubility, ChemsCRC, ChemsHaza
         return chem_reactions_occurence
     
 
-    def compile_chems_properties(self):
+    def _compile_chems_properties(self):
         solubility = self._load_jsonl(self.chems_solubility_fn)
         crc_inorganic = self._load_jsonl(self.crc_inorganic_constants_fn)
         crc_organic = self._load_jsonl(self.crc_organic_constants_fn)
@@ -169,6 +169,9 @@ class ChemsPropertiesUnified(ChemsOrdParse, ChemsSolubility, ChemsCRC, ChemsHaza
         result = dict()
 
         def add_property(cid, property, value):
+            if cid not in result:
+                return
+
             result[cid].append({'property': property, 'value': f"{value}"})
 
         for chem in self._rich_track(self.chems, 'Adding basic properties', transient=True):
@@ -188,7 +191,8 @@ class ChemsPropertiesUnified(ChemsOrdParse, ChemsSolubility, ChemsCRC, ChemsHaza
             add_property(cid, 'SMILES', chem['smiles'])
             add_property(cid, 'InChI', chem['inchi'])
             add_property(cid, 'InChI-key', chem['inchikey'])
-            add_property(cid, 'Complexity', chem['complexity'])
+            add_property(cid, 'Pubchem complexity', chem['complexity'])
+            add_property(cid, 'Bertz complexity', chem['bertz_complexity'])
         
         
         for entry in self._rich_track(solubility, 'Adding solubility', transient=True):
@@ -209,8 +213,12 @@ class ChemsPropertiesUnified(ChemsOrdParse, ChemsSolubility, ChemsCRC, ChemsHaza
             
             return crc_str
         
+        processed_crc_cids = set()
         for entry in self._rich_track(crc_inorganic+crc_organic, 'Adding CRC constants', transient=True):
             cid = entry['cid']
+            if cid in processed_crc_cids:
+                continue
+
             if entry['physical_form']:
                 add_property(cid, 'Appearence', entry['physical_form'])
             if entry['mp'] and entry['mp']['value'] is not None:
@@ -221,6 +229,8 @@ class ChemsPropertiesUnified(ChemsOrdParse, ChemsSolubility, ChemsCRC, ChemsHaza
                 add_property(cid, 'Density', f"{entry['density']} g/cm^3")
             if entry.get('refractive_index', None) is not None:
                 add_property(cid, 'Refractive index', entry['refractive_index'])
+            
+            processed_crc_cids.add(cid)
             
 
         for entry in self._rich_track(crc_flammability, 'Adding CRC flammability data', transient=True):
@@ -236,7 +246,8 @@ class ChemsPropertiesUnified(ChemsOrdParse, ChemsSolubility, ChemsCRC, ChemsHaza
         
 
         result_entries = [{'cid': cid, 'properties': props} for cid, props in result.items()]
-        self._write_jsonl(result_entries, self.chems_properties_compiled_fn)
+
+        return result_entries
     
 
 
@@ -297,5 +308,5 @@ class ChemsPropertiesUnified(ChemsOrdParse, ChemsSolubility, ChemsCRC, ChemsHaza
 
 if __name__ == "__main__":
     unified = ChemsPropertiesUnified('data/')
-    unified.test()
+    unified._compile_chems_properties()
             

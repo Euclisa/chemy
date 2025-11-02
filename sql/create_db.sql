@@ -10,7 +10,7 @@ CREATE TABLE compounds (
     smiles VARCHAR(1000) NOT NULL,
     inchi VARCHAR(1000) NOT NULL,
     inchikey CHAR(27) UNIQUE NOT NULL,
-    complexity REAL NOT NULL,
+    complexity REAL,
     bertz_complexity REAL NOT NULL,
     organic BOOLEAN NOT NULL
 );
@@ -45,9 +45,9 @@ CREATE TABLE compound_wiki (
 
 CREATE TABLE compound_nfpa (
     cid INTEGER PRIMARY KEY REFERENCES compounds(cid),
-    health SMALLINT,
-    flammability SMALLINT,
-    instability SMALLINT
+    health REAL,
+    flammability REAL,
+    instability REAL
 );
 
 
@@ -65,17 +65,24 @@ CREATE TABLE compound_categories (
 );
 
 
-CREATE TABLE compound_hazard_statements (
-    cid INTEGER NOT NULL REFERENCES compounds(cid),
-    statement CHAR(4) NOT NULL,
-    PRIMARY KEY (cid, statement)
-);
-
-
 CREATE TABLE compound_hazard_pictograms (
     cid INTEGER NOT NULL REFERENCES compounds(cid),
     pictogram CHAR(5) NOT NULL,
     PRIMARY KEY (cid, pictogram)
+);
+
+
+CREATE TABLE compound_properties (
+    cid INTEGER NOT NULL REFERENCES compounds(cid),
+    property_name VARCHAR(100) NOT NULL,
+    property_value VARCHAR(3000) NOT NULL,
+    PRIMARY KEY (cid, property_name)
+);
+
+
+CREATE TABLE compound_commonness_sorting (
+    cid INTEGER PRIMARY KEY REFERENCES compounds(cid),
+    rank INTEGER UNIQUE NOT NULL
 );
 
 
@@ -85,8 +92,14 @@ CREATE TABLE compound_descriptions (
 );
 
 
-CREATE TABLE background_compounds (
-    cid INTEGER PRIMARY KEY REFERENCES compounds(cid)
+CREATE TABLE compound_complexity_sorting (
+    cid INTEGER PRIMARY KEY REFERENCES compounds(cid),
+    rank INTEGER UNIQUE NOT NULL
+);
+
+CREATE TABLE compound_curiosity_sorting (
+    cid INTEGER PRIMARY KEY REFERENCES compounds(cid),
+    rank INTEGER UNIQUE NOT NULL
 );
 
 
@@ -101,6 +114,7 @@ CREATE TABLE reactions (
 
 CREATE TABLE reaction_reactants (
     cid INTEGER NOT NULL REFERENCES compounds(cid),
+    coeff INTEGER CHECK (coeff > 0 OR coeff IS NULL),
     rid CHAR(24) NOT NULL REFERENCES reactions(rid),
     PRIMARY KEY (cid, rid)
 );
@@ -108,6 +122,7 @@ CREATE TABLE reaction_reactants (
 
 CREATE TABLE reaction_products (
     cid INTEGER NOT NULL REFERENCES compounds(cid),
+    coeff INTEGER CHECK (coeff > 0 OR coeff IS NULL),
     rid CHAR(24) NOT NULL REFERENCES reactions(rid),
     PRIMARY KEY (cid, rid)
 );

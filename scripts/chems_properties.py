@@ -39,19 +39,20 @@ class ChemsProperties(ChemsDB):
         os.makedirs(self.chems_mapped_fn, exist_ok=True)
         os.makedirs(self.chems_unmapped_fn, exist_ok=True)
 
-        self.chems_wiki_fn = os.path.join(self.data_dir, 'chems', "chems_wiki.jsonl")
         self.chems_edges_fn = os.path.join(self.data_dir, 'chems', 'chems_edges.jsonl')
         self.elements_fn = os.path.join(self.data_dir, 'chems', 'elements.jsonl')
+        self.cids_blacklist_fn = os.path.join(self.data_dir, 'chems', 'cids_blacklist.jsonl')
 
         self.categories_fn = os.path.join(self.data_dir, 'misc', "categories.jsonl")
         self.background_cids_fn = os.path.join(self.data_dir, 'misc', 'background_cids.json')
-        self.cids_blacklist_fn = os.path.join(self.data_dir, 'misc', 'cids_blacklist.jsonl')
         self.cids_filtered_synonyms_fn = os.path.join(self.data_dir, 'misc', 'cids_filtered_synonyms.jsonl')
 
         self.chems_properties_dir = os.path.join(self.data_dir, 'chems_properties')
         self.chems_properties_assets_dir = os.path.join(self.data_dir, 'assets', 'chems_properties')
 
         self.chems_categories_fn = os.path.join(self.chems_properties_dir, "chems_categories.jsonl")
+        self.chems_wiki_fn = os.path.join(self.chems_properties_dir, 'wiki', "chems_wiki.jsonl")
+        self.chems_hazards_wiki_fn = os.path.join(self.chems_properties_dir, 'wiki', "chems_hazards_wiki.jsonl")
 
         self._file_sorting_prefs[self.chems_mapped_fn] = 'bertz_complexity'
         self._file_sorting_prefs[self.chems_unmapped_fn] = 'cid'
