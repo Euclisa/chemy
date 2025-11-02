@@ -1,3 +1,6 @@
 [submodule "submodules/ord-data"]
 	path = submodules/ord-data
 	url = https://github.com/open-reaction-database/ord-data.git
+[submodule "submodules/BigSolDBv2.0"]
+	path = submodules/BigSolDBv2.0
+	url = https://github.com/levakrasnovs/BigSolDBv2.0.git

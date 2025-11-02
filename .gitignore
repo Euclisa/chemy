@@ -1,9 +1,11 @@
-.env/
+/.env/
 /ord/
 __pycache__/
-.idea/
-conformers/
+/.idea/
+/conformers/
 *_tmp/
+/build/
+.vscode
 
 *.backup
 /*.json

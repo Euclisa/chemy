@@ -109,15 +109,19 @@ class ChemsPropertiesUnified(ChemsOrdParse, ChemsSolubility, ChemsCRC, ChemsHaza
         self.log(f"Generated {len(edge_reaction_id_map)} edges")
     
 
-    def discard_orphaned_unmapped_chems(self, connectivity_degree_thr=1):
-        reactions = self._load_jsonl(self.reactions_parsed_ord_fn)
-        cids_connectivity = dict()
-        for reaction in reactions:
+    def discard_orphaned_unmapped_chems(self):
+        connected_cids = set()
+        for reaction in self.parsed_reactions:
             all_cids = self._get_all_reaction_cids(reaction)
             for cid in all_cids:
-                cids_connectivity[cid] = cids_connectivity.setdefault(cid, 0) + 1
+                connected_cids.add(cid)
         
-        res_chems = [chem for chem in self.chems if chem['cid'] < 0 and cids_connectivity.get(chem['cid'], 0) >= connectivity_degree_thr]
+        for entry in self.reactions_details:
+            for cmpd in entry['solvents']+entry['catalysts']:
+                connected_cids.add(cmpd['cid'])
+
+        
+        res_chems = [chem for chem in self.chems_unmapped if chem['cid'] in connected_cids]
         self._update_unmapped_chems(res_chems)
     
 
@@ -308,5 +312,5 @@ class ChemsPropertiesUnified(ChemsOrdParse, ChemsSolubility, ChemsCRC, ChemsHaza
 
 if __name__ == "__main__":
     unified = ChemsPropertiesUnified('data/')
-    unified._compile_chems_properties()
+    unified.discard_orphaned_unmapped_chems()
             
