@@ -1,9 +1,11 @@
-#include "chem_graph.hpp"
+#include "app.hpp"
+#include "fuzzy_map.hpp"
 
 
 int main()
 {
-    ChemGraph graph("chemistry");
+    chm::App graph("chemistry");
+    chm::FuzzyMap<int> map;
 
     return 0;
 }

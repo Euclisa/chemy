@@ -389,11 +389,11 @@ class ChemsProperties(ChemsDB):
     
 
     def _good_name_criteria(self, name: str):
-        if not name:
-            return False
-        
         if name == self.unknown_name_ph:
             return True
+
+        if not name or len(name) <= 1 or not name.isascii():
+            return False
         
         name = name.strip()
         
@@ -419,6 +419,7 @@ class ChemsProperties(ChemsDB):
         DISCARD_PATTERNS = [
             r'[:=%<>@/\\_.#&*";?!]',
             r'[-,.]$',
+            r'^[-,.]',
             self.CAS_PATTERN,
             r'unii-',
             r'\(\d:\d\)',
@@ -429,7 +430,7 @@ class ChemsProperties(ChemsDB):
             r'-,',
             r'^\d+$',
             r'^[a-z]?[0-9-()\s]+[a-z]?$',
-            r'\( .+ \)',
+            r'\(\s+.+\s+\)',
             discard_word_part_pattern,
             discard_word_whole_pattern
         ]
@@ -532,7 +533,7 @@ class ChemsProperties(ChemsDB):
 
         try:
 
-            is_mapped = cid > 0
+            is_mapped = self._is_chem_mapped(chem)
 
             if chem['charge'] != 0:
                 return None
@@ -564,8 +565,11 @@ class ChemsProperties(ChemsDB):
             else:
                 if not self._good_name_criteria(chem['cmpdname']):
                     chem['cmpdname'] = self.unknown_name_ph
-                    if chem['cmpdname'] == self.unknown_name_ph:
-                        chem['cmpdsynonym'] = []
+
+                if chem['cmpdname'] == self.unknown_name_ph:
+                    chem['cmpdsynonym'] = []
+                else:
+                    chem['cmpdsynonym'] = [chem['cmpdname']]
 
             def is_hydrate_inchi(inchi: str) -> bool:
                 try:

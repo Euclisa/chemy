@@ -13,3 +13,4 @@ __pycache__/
 /*.txt
 merged_reactions_parsed.jsonl
 test.html
+!/CMakeLists.txt
