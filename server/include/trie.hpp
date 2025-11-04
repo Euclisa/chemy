@@ -45,7 +45,7 @@ namespace chm
     {
         this->own_pool = !pool;
         if (this->own_pool)
-            this->pool = new std::pmr::monotonic_buffer_resource();
+            this->pool = new std::pmr::monotonic_buffer_resource;
         else 
             this->pool = pool;
 
@@ -65,6 +65,9 @@ namespace chm
     template<typename value_t>
     typename std::pmr::vector<Trie<value_t>>::iterator Trie<value_t>::insert_char(char c)
     {
+        if(c == '\0')
+            throw std::invalid_argument("Nullt-terminal character is reserved for internal needs and can't be inserted");
+
         auto it = std::lower_bound(this->children.begin(), this->children.end(), c);
         
         if(it == this->children.end() || it->c != c)

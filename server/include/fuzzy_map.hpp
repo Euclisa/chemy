@@ -29,28 +29,32 @@ namespace chm
         int max_key_size{0};
         
         const int query_size_multiplier{100};
-        const int min_max_cost_thr{6};
+        const int min_max_cost_thr{8};
         
-        int add_cost, remove_cost;
+        int add_cost_middle, add_cost_sides;
+        int remove_cost_middle, remove_cost_sides;
 
     public:
 
-        FuzzyMap(double add_cost = 1.0, double remove_cost = 4.0);
+        FuzzyMap(double add_cost_middle = 3.0, double add_cost_sides = 1.0, double remove_cost_middle = 4.0, double remove_cost_sides = 4.0);
         
         void insert_entries(const std::vector<std::pair<std::string, value_t>>& entries);
 
-        std::vector<std::pair<value_t, int>> search(std::string query);
+        std::vector<std::pair<value_t, double>> search(std::string query);
     };
 
 
     template<typename value_t>
-    FuzzyMap<value_t>::FuzzyMap(double add_cost, double remove_cost) : trie('\0')
+    FuzzyMap<value_t>::FuzzyMap(double add_cost_middle, double add_cost_sides, double remove_cost_middle, double remove_cost_sides) : trie('\0')
     {
-        if(add_cost < 0 || remove_cost < 0)
+        if(add_cost_middle < 0 || add_cost_sides < 0 || remove_cost_middle < 0 || remove_cost_sides < 0)
             throw std::invalid_argument("Cost must be positive");
         
-        this->add_cost = add_cost * this->query_size_multiplier;
-        this->remove_cost = remove_cost * this->query_size_multiplier;
+        this->add_cost_middle = add_cost_middle * this->query_size_multiplier;
+        this->add_cost_sides = add_cost_sides * this->query_size_multiplier;
+
+        this->remove_cost_middle = remove_cost_middle * this->query_size_multiplier;
+        this->remove_cost_sides = remove_cost_sides * this->query_size_multiplier;
 
         this->lev_matrix.insert(this->lev_matrix.end(), 2, std::vector<int>(this->max_key_size+1, -1));
     }
@@ -85,7 +89,7 @@ namespace chm
 
 
     template<typename value_t>
-    std::vector<std::pair<value_t, int>> FuzzyMap<value_t>::search(std::string query)
+    std::vector<std::pair<value_t, double>> FuzzyMap<value_t>::search(std::string query)
     {
         query = to_lower(query);
         int query_size = query.size();
@@ -114,7 +118,7 @@ namespace chm
             [&](const Trie<value_t> *trie, int pos, int cost)
             {
                 auto state = std::make_tuple(trie, pos, cost);
-                if(pos < query_size && cost <= max_cost_thr && visited_states.find(state) == visited_states.end())
+                if(cost <= max_cost_thr && visited_states.find(state) == visited_states.end())
                 {
                     active_states.push(state);
                     visited_states.insert(state);
@@ -123,12 +127,26 @@ namespace chm
 
         check_add_active_state(&this->trie, 0, 0.0);
         
+        int remove_cost, add_cost;
         while(active_states.size())
         {
             auto [curr_trie, curr_pos, curr_cost] = active_states.top();
             active_states.pop();
 
-            if(curr_pos == query_size-1)
+            bool is_end_pos = curr_pos == query_size;
+
+            if(curr_pos == 0 || is_end_pos)
+            {
+                add_cost = this->add_cost_sides;
+                remove_cost = this->remove_cost_sides;
+            }
+            else
+            {
+                add_cost = this->add_cost_middle;
+                remove_cost = this->remove_cost_middle;
+            }
+
+            if(is_end_pos)
             {
                 for(value_t value : curr_trie->values)
                 {
@@ -138,20 +156,33 @@ namespace chm
                     else
                         value_cost[value] = curr_cost;
                 }
+                
+                for(const auto& child_trie : curr_trie->children)
+                    check_add_active_state(&child_trie, curr_pos, curr_cost + add_cost);
             }
-            
-            for(const auto& child_trie : curr_trie->children)
+            else
             {
-                if(query[curr_pos] == child_trie.get_char())
-                    check_add_active_state(&child_trie, curr_pos+1, curr_cost);
-                check_add_active_state(&child_trie, curr_pos, curr_cost + add_cost);
-            }
+                for(const auto& child_trie : curr_trie->children)
+                {
+                    if(query[curr_pos] == child_trie.get_char())
+                        check_add_active_state(&child_trie, curr_pos+1, curr_cost);
+                    check_add_active_state(&child_trie, curr_pos, curr_cost + add_cost);
+                }
 
-            check_add_active_state(curr_trie, curr_pos+1, curr_cost + remove_cost);
+                check_add_active_state(curr_trie, curr_pos+1, curr_cost + remove_cost);
+            }
         }
 
-        std::vector<std::pair<value_t, int>> result(value_cost.begin(), value_cost.end());
-        std::sort(result.begin(), result.end(), [](const std::pair<value_t, int>& a, const std::pair<value_t, int>& b) { return a.second < b.second; });
+        std::vector<std::pair<value_t, double>> result;
+        result.reserve(value_cost.size());
+        for(const auto& entry : value_cost)
+        {
+            value_t value = entry.first;
+            double cost = (double)entry.second / query_size / this->query_size_multiplier;
+            result.push_back(std::make_pair(value, cost));
+        }
+
+        std::sort(result.begin(), result.end(), [](const std::pair<value_t, double>& a, const std::pair<value_t, double>& b) { return a.second < b.second; });
 
         return result;
     }
