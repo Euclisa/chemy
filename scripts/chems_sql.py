@@ -55,7 +55,7 @@ class ChemsSql(ChemsMisc):
 
 
                 sql = \
-                "INSERT INTO compound_fingerprints (cid, ECFP4_fp, popcount) " \
+                "INSERT INTO compound_fingerprints (cid, bits, popcount) " \
                 "VALUES %s "
                 data = [(chem['cid'], chem['ECFP4_fp']['bits'], chem['ECFP4_fp']['popcount']) for chem in self.chems]
                 execute_values_advance(cur, sql, data)

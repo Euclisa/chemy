@@ -25,7 +25,7 @@ CREATE TABLE compound_cas (
 
 CREATE TABLE compound_fingerprints (
     cid INTEGER PRIMARY KEY REFERENCES compounds(cid),
-    ECFP4_fp INTEGER[64] NOT NULL,
+    bits BIGINT[16] NOT NULL,
     popcount SMALLINT NOT NULL
 );
 

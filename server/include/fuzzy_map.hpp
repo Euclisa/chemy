@@ -23,7 +23,7 @@ namespace chm
     class FuzzyMap
     {
     private:
-        Trie<value_t> trie;
+        Trie<value_t, char> trie;
         
         std::vector<std::vector<int>> lev_matrix;
         int max_key_size{0};
@@ -59,14 +59,13 @@ namespace chm
         this->lev_matrix.insert(this->lev_matrix.end(), 2, std::vector<int>(this->max_key_size+1, -1));
     }
 
-
     template<typename value_t>
     void FuzzyMap<value_t>::insert_entries(const std::vector<std::pair<std::string, value_t>>& entries)
     {
         int prev_max_key_size = this->max_key_size;
         for (const auto& e : entries)
         {
-            this->trie.insert(e.first, e.second);
+            this->trie.insert_string(e.first, e.second);
             this->max_key_size = std::max<int>(this->max_key_size, (int)e.first.size());
         }
         
@@ -97,14 +96,14 @@ namespace chm
         int max_cost_thr = std::max(this->min_max_cost_thr * this->query_size_multiplier, query_size * this->query_size_multiplier);
         std::unordered_map<value_t, int> value_cost;
 
-        using active_state_t = std::tuple<const Trie<value_t>*, int, int>;
+        using active_state_t = std::tuple<const Trie<value_t, char>*, int, int>;
         std::stack<active_state_t> active_states;
 
         struct ActiveStateHash
         {
             std::size_t operator()(const active_state_t& t) const
             {
-                auto h1 = std::hash<const Trie<value_t>*>{}(std::get<0>(t));
+                auto h1 = std::hash<const Trie<value_t, char>*>{}(std::get<0>(t));
                 auto h2 = std::hash<int>{}(std::get<1>(t));
                 auto h3 = std::hash<int>{}(std::get<2>(t));
                 
@@ -115,7 +114,7 @@ namespace chm
         std::unordered_set<active_state_t, ActiveStateHash> visited_states;
 
         auto check_add_active_state =
-            [&](const Trie<value_t> *trie, int pos, int cost)
+            [&](const Trie<value_t, char> *trie, int pos, int cost)
             {
                 auto state = std::make_tuple(trie, pos, cost);
                 if(cost <= max_cost_thr && visited_states.find(state) == visited_states.end())
@@ -158,15 +157,15 @@ namespace chm
                 }
                 
                 for(const auto& child_trie : curr_trie->children)
-                    check_add_active_state(&child_trie, curr_pos, curr_cost + add_cost);
+                    check_add_active_state(child_trie, curr_pos, curr_cost + add_cost);
             }
             else
             {
                 for(const auto& child_trie : curr_trie->children)
                 {
-                    if(query[curr_pos] == child_trie.get_char())
-                        check_add_active_state(&child_trie, curr_pos+1, curr_cost);
-                    check_add_active_state(&child_trie, curr_pos, curr_cost + add_cost);
+                    if(query[curr_pos] == child_trie->get_key())
+                        check_add_active_state(child_trie, curr_pos+1, curr_cost);
+                    check_add_active_state(child_trie, curr_pos, curr_cost + add_cost);
                 }
 
                 check_add_active_state(curr_trie, curr_pos+1, curr_cost + remove_cost);

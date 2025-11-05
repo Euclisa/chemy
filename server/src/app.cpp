@@ -1,6 +1,7 @@
 #include "app.hpp"
 #include <iostream>
 #include <unordered_set>
+#include <cstdarg>
 
 
 chm::App::App(std::string db_name, std::string user, std::string password)
@@ -34,30 +35,47 @@ chm::App::~App()
 }
 
 
-void chm::App::setup_graph()
+pqxx::result chm::App::run_pqxx_request(std::string sql)
 {
     pqxx::work tx(*this->conn);
+    return tx.exec(sql);
+}
 
+
+void chm::App::setup_graph()
+{
     std::string sql_pairs = 
-        "SELECT r.cid, p.cid "
+        "SELECT r.cid, p.cid, r.rid "
         "FROM reaction_reactants r "
         "JOIN reaction_products p "
         "ON r.rid = p.rid";
     
-    pqxx::result pair_rows = tx.exec(sql_pairs);
+    pqxx::result pair_rows = this->run_pqxx_request(sql_pairs);
 
     std::unordered_set<cid_t> unique_cids;
     for(const auto& row : pair_rows)
     {
         cid_t r_cid = row[0].as<cid_t>();
         cid_t p_cid = row[1].as<cid_t>();
+        std::string rid = row[2].as<std::string>();
 
         unique_cids.insert({r_cid, p_cid});
 
-        graph[r_cid].push_back(p_cid);
+        this->graph[r_cid][p_cid].push_back(rid);
+        this->graph_reverse[p_cid][r_cid].push_back(rid);
     }
 
-    std::cout << graph.size() << ' ' << unique_cids.size() << '\n';
+    this->retrieve_fingerprints(unique_cids.begin(), unique_cids.end());
+    std::cout << "Starting" << '\n';
+    auto paths = this->find_paths({313, 962}, {222, 977}, 10, 100);
+    for(const auto& path : paths)
+    {
+        for(cid_t node : path)
+            std::cout << node << ' ';
+        std::cout << '\n';
+    }
+
+    std::cout << this->graph.size() << ' ' << unique_cids.size() << "\n\n";
 }
 
 

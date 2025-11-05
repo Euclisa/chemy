@@ -288,12 +288,19 @@ class ChemsProperties(ChemsDB):
     def _get_mol_fingerprint(self, mol):
         fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=1024)
         bitstring = fp.ToBitString()
-        popcount = sum([int(x) for x in bitstring])
+        popcount = fp.GetNumOnBits()
 
-        chunks = [bitstring[i:i+32] for i in range(0, 1024, 32)]
-        ints32 = [int(c, 2) - 2**32 if int(c, 2) >= 2**31 else int(c, 2) for c in chunks]
+        bits_per_chunk = 64
+        mod = 1 << bits_per_chunk
 
-        return {'bits': ints32, 'popcount': popcount}
+        chunks_int = []
+        for i in range(0, 1024, bits_per_chunk):
+            c_int = int(bitstring[i:i+bits_per_chunk], 2)
+            if c_int >= (mod >> 1):
+                c_int -= mod
+            chunks_int.append(c_int)
+
+        return {'bits': chunks_int, 'popcount': popcount}
 
 
     def generate_chems_fingerprints(self):
@@ -528,7 +535,10 @@ class ChemsProperties(ChemsDB):
 
 
 
-    def _process_chem_single(self, chem, force=False):
+    def _process_chem_single(self, chem, force=None):
+        if force is None:
+            force = set()
+
         cid = chem['cid']
 
         try:
@@ -593,29 +603,34 @@ class ChemsProperties(ChemsDB):
                 # Filter hydrates (two checks for reliability)
                 if is_hydrate_inchi(chem['inchi']) and 'hydrate' in chem['cmpdname']:
                     return None
+            
+            
+            def need_compute_field(field):
+                return field not in chem or field in force
 
-            if 'ECFP4_fp' not in chem or force:
+
+            if need_compute_field('ECFP4_fp'):
                 chem['ECFP4_fp'] = self._get_mol_fingerprint(mol)
 
-            if 'bertz_complexity' not in chem or force:
+            if need_compute_field('bertz_complexity'):
                 chem['bertz_complexity'] = self._get_mol_bertz_complexity(mol)
             
-            if 'heavy_count' not in chem or force:
+            if need_compute_field('heavy_count'):
                 chem['heavy_count'] = mol.GetNumHeavyAtoms()
             
             if not is_mapped and not self._unmapped_complexity_criteria(chem):
                 return None
 
-            if 'organic' not in chem or force:
+            if need_compute_field('organic'):
                 chem['organic'] = self._get_mol_organic_mark(mol)
 
-            if 'wiki' not in chem or force:
+            if need_compute_field('wiki'):
                 chem['wiki'] = self.cid_wiki_map.get(cid, None)
 
-            if 'inchi_snone' not in chem or force:
+            if need_compute_field('inchi_snone'):
                 chem['inchi_snone'] = inchi.MolToInchi(mol, options="/SNon")
 
-            if 'inchikey_snone' not in chem or force:
+            if need_compute_field('inchikey_snone'):
                 chem['inchikey_snone'] = inchi.MolToInchiKey(mol, options="/SNon")
 
             if not chem['inchi_snone'] or not chem['inchikey_snone']:
@@ -627,7 +642,7 @@ class ChemsProperties(ChemsDB):
             self.log_warn(f"Exception during processing compound with CID {cid}: {e}")
             return None
 
-    def _process_chems(self, force=False):
+    def _process_chems(self, force=None):
         processed_chems = []
         for chem in self._rich_track(self.chems, "Processing compounds"):
             if (chem := self._process_chem_single(chem, force=force)):
@@ -636,7 +651,7 @@ class ChemsProperties(ChemsDB):
         return processed_chems
 
 
-    def organize_chems_file(self, force=False):
+    def organize_chems_file(self, force=None):
         initial_chems_num = len(self.chems)
 
         processed_chems = self._process_chems(force=force)
@@ -866,4 +881,4 @@ class ChemsProperties(ChemsDB):
 
 if __name__ == "__main__":
     parse = ChemsProperties('data/')
-    parse.organize_chems_file()
+    parse.organize_chems_file(force={'ECFP4_fp'})

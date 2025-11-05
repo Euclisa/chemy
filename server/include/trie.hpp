@@ -6,100 +6,133 @@
 #include <utility>
 #include <string>
 #include <set>
+#include <algorithm>
 
 
 namespace chm
 {
-    template<typename value_t>
+    template<typename value_t, typename key_t>
     class Trie
     {
     private:
-        std::pmr::memory_resource *pool;
+
+        key_t key;
+
+        Trie *parent;
+
         bool own_pool;
+        std::pmr::memory_resource *pool;
+        std::pmr::polymorphic_allocator<Trie> alloc;
 
-        std::string s{""};
-        char c;
-
-        typename std::pmr::vector<Trie<value_t>>::iterator insert_char(char c);
+        uint32_t depth;
 
     public:
 
-        std::pmr::vector<Trie> children;
+        std::vector<Trie*> children;
         std::set<value_t> values;
 
-        Trie(char c, std::pmr::memory_resource *pool = nullptr);
+        Trie(key_t key, Trie *parent = nullptr, std::pmr::memory_resource *pool = nullptr);
 
         ~Trie();
 
-        void insert(std::string key, value_t value);
+        Trie *insert_key(key_t key);
+        
+        template<typename T = key_t>
+        requires std::is_same_v<T, char>
+        void insert_string(std::string key, value_t value);
 
+        template<typename T = key_t>
+        requires std::is_same_v<T, char>
         std::string get_string() const;
-        char get_char() const;
 
-        bool operator<(char b);
+        std::vector<key_t> get_path(bool include_root = false) const;
+
+        key_t get_key() const;
+        uint32_t get_depth() const;
+        Trie *get_parent() const;
     };
 
 
-    template<typename value_t>
-    Trie<value_t>::Trie(char c, std::pmr::memory_resource *pool) : c(c)
-    {
-        this->own_pool = !pool;
-        if (this->own_pool)
-            this->pool = new std::pmr::monotonic_buffer_resource;
-        else 
-            this->pool = pool;
-
-        this->children = std::pmr::vector<Trie>(this->pool);
-        this->children.reserve(26);
-    }
+    template<typename value_t, typename key_t>
+    Trie<value_t, key_t>::Trie(key_t key, Trie *parent, std::pmr::memory_resource *pool)
+        : key(key),
+        parent(parent),
+        own_pool(!pool),
+        pool(pool ? pool : new std::pmr::monotonic_buffer_resource()),
+        alloc(this->pool),
+        depth(parent ? parent->depth + 1 : 0) {}
 
 
-    template<typename value_t>
-    Trie<value_t>::~Trie()
+    template<typename value_t, typename key_t>
+    Trie<value_t, key_t>::~Trie()
     {
         if(this->own_pool)
             delete this->pool;
     }
 
 
-    template<typename value_t>
-    typename std::pmr::vector<Trie<value_t>>::iterator Trie<value_t>::insert_char(char c)
+    template<typename value_t, typename key_t>
+    Trie<value_t, key_t>* Trie<value_t, key_t>::insert_key(key_t key)
     {
-        if(c == '\0')
-            throw std::invalid_argument("Nullt-terminal character is reserved for internal needs and can't be inserted");
-
-        auto it = std::lower_bound(this->children.begin(), this->children.end(), c);
+        auto it = std::lower_bound(this->children.begin(), this->children.end(), key, [](const Trie<value_t, key_t> *a, key_t b) { return a->get_key() < b; });
         
-        if(it == this->children.end() || it->c != c)
+        if(it == this->children.end() || (*it)->get_key() != key)
         {
-            Trie trie = Trie(c, this->pool);
-            trie.s = this->s + c;
+            Trie* trie = alloc.template new_object<Trie>(key, this, this->pool);
             it = this->children.insert(it, trie);
         }
         
-        return it;
+        return *it;
     }
 
 
-    template<typename value_t>
-    void Trie<value_t>::insert(std::string key, value_t value)
+    template<typename value_t, typename key_t>
+    template<typename T>
+    requires std::is_same_v<T, char>
+    void Trie<value_t, key_t>::insert_string(std::string key, value_t value)
     {
-        Trie<value_t> *curr_node = this;
+        Trie<value_t, char> *curr_node = this;
         for(char c : key)
-            curr_node = &(*curr_node->insert_char(std::tolower(c)));
+            curr_node = curr_node->insert_key(std::tolower(c));
         curr_node->values.insert(value);
     }
 
 
-    template<typename value_t>
-    std::string Trie<value_t>::get_string() const { return this->s; }
+    template<typename value_t, typename key_t>
+    template<typename T>
+    requires std::is_same_v<T, char>
+    std::string Trie<value_t, key_t>::get_string() const { return this->s; }
 
-    template<typename value_t>
-    char Trie<value_t>::get_char() const { return this->c; }
+
+    template<typename value_t, typename key_t>
+    std::vector<key_t> Trie<value_t, key_t>::get_path(bool include_root) const
+    {
+        uint32_t path_len = include_root ? this->depth+1 : this->depth;
+        if(path_len == 0)
+            return std::vector<key_t>();
+
+        std::vector<key_t> path(path_len, this->key);
+        const Trie *curr_node = this;
+        uint32_t curr_i = path_len-1;
+        while((curr_node && include_root) || (curr_node->parent && !include_root))
+        {
+            path[curr_i--] = curr_node->key;
+            curr_node = curr_node->parent;
+        }
+
+        return path;
+    }
 
 
-    template<typename value_t>
-    bool Trie<value_t>::operator<(char c) { return this->c < c; }
+    template<typename value_t, typename key_t>
+    key_t Trie<value_t, key_t>::get_key() const { return this->key; }
+
+
+    template<typename value_t, typename key_t>
+    uint32_t Trie<value_t, key_t>::get_depth() const { return this->depth; }
+
+    template<typename value_t, typename key_t>
+    Trie<value_t, key_t> *Trie<value_t, key_t>::get_parent() const { return this->parent; }
 }
 
 #endif // CHEMS_TRIE_HPP
