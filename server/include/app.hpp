@@ -50,10 +50,13 @@ namespace chm
         ecfp4_t retrieve_fingerprint_single(cid_t cid);
 
         double compute_tanimoto(const ecfp4_t& a, const ecfp4_t& b);
-        inline void compute_min_targets_tanimoto(cid_t cid, const std::vector<ecfp4_t>& targets_fp, std::unordered_map<cid_t, double>& cid_dist);
-        bool min_targets_tanimoto_cmp(const cid_t a, const cid_t b, const std::vector<ecfp4_t>& targets_fp, std::unordered_map<cid_t, double>& cid_dist);
+        inline void compute_max_targets_tanimoto(cid_t cid, const std::vector<ecfp4_t>& targets_fp, std::unordered_map<cid_t, double>& cid_dist);
+        bool max_targets_tanimoto_cmp(const cid_t a, const cid_t b, const std::vector<ecfp4_t>& targets_fp, std::unordered_map<cid_t, double>& cid_dist);
 
         std::vector<std::vector<cid_t>> find_paths(const std::vector<cid_t>& sources, const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths);
+        std::vector<std::vector<cid_t>> find_paths_single_list(const std::vector<cid_t>& cids, graph_t& graph, uint16_t max_cost, uint16_t max_paths);
+        std::vector<std::vector<cid_t>> find_paths_sources_only(const std::vector<cid_t>& sources, uint16_t max_cost, uint16_t max_paths);
+        std::vector<std::vector<cid_t>> find_paths_targets_only(const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths);
 
     public:
         App(std::string db_name, std::string user="", std::string password="");

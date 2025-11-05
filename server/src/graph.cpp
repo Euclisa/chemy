@@ -71,25 +71,24 @@ double chm::App::compute_tanimoto(const ecfp4_t& a, const ecfp4_t& b)
 }
 
 
-inline void chm::App::compute_min_targets_tanimoto(cid_t cid, const std::vector<ecfp4_t>& targets_fp, std::unordered_map<cid_t, double>& cids_sim)
+inline void chm::App::compute_max_targets_tanimoto(cid_t cid, const std::vector<ecfp4_t>& targets_fp, std::unordered_map<cid_t, double>& cids_sim)
 {
     if(cids_sim.find(cid) != cids_sim.end())
         return;
 
     ecfp4_t fp = this->retrieve_fingerprint_single(cid);
-    std::vector<double> source_tanimoto;
-    source_tanimoto.reserve(targets_fp.size());
-    std::transform(targets_fp.begin(), targets_fp.end(), std::back_inserter(source_tanimoto),
-        [this, &fp](ecfp4_t src_fp) { return this->compute_tanimoto(fp, src_fp); });
-    cids_sim[cid] = *std::min_element(source_tanimoto.begin(), source_tanimoto.end());
+    double max_tanimoto = 0.0;
+    for(const ecfp4_t& targ_fp : targets_fp)
+        max_tanimoto = std::max(this->compute_tanimoto(fp, targ_fp), max_tanimoto);
+    cids_sim[cid] = max_tanimoto;
 }
 
 
-bool chm::App::min_targets_tanimoto_cmp(const cid_t a, const cid_t b, const std::vector<ecfp4_t>& targets_fp, std::unordered_map<cid_t, double>& cids_sim)
+bool chm::App::max_targets_tanimoto_cmp(const cid_t a, const cid_t b, const std::vector<ecfp4_t>& targets_fp, std::unordered_map<cid_t, double>& cids_sim)
 {
-    this->compute_min_targets_tanimoto(a, targets_fp, cids_sim);
-    this->compute_min_targets_tanimoto(b, targets_fp, cids_sim);
-    return cids_sim[a] > cids_sim[b];
+    this->compute_max_targets_tanimoto(a, targets_fp, cids_sim);
+    this->compute_max_targets_tanimoto(b, targets_fp, cids_sim);
+    return cids_sim[a] < cids_sim[b];
 }
 
 
@@ -104,8 +103,9 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths(const std::vector
     
     using traverse_trie_t = Trie<int, cid_t>;
     traverse_trie_t paths_trie(0);
-    auto cmp = [this, &targets_fp, &cids_sim](const traverse_trie_t *a, const traverse_trie_t *b)
-        { return this->min_targets_tanimoto_cmp(a->get_key(), b->get_key(), targets_fp, cids_sim); };
+    auto cmp =
+    [this, &targets_fp, &cids_sim](const traverse_trie_t *a, const traverse_trie_t *b)
+    { return this->max_targets_tanimoto_cmp(a->get_key(), b->get_key(), targets_fp, cids_sim); };
     
     std::priority_queue<traverse_trie_t*, std::vector<traverse_trie_t*>, decltype(cmp)> pqueue(cmp);
     for(cid_t cid : sources)
@@ -114,7 +114,8 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths(const std::vector
         pqueue.push(src_node);
     }
 
-    auto get_visited_cids = [](const traverse_trie_t *trie, std::unordered_set<cid_t>& visited)
+    auto get_visited_cids =
+    [](const traverse_trie_t *trie, std::unordered_set<cid_t>& visited)
     {
         const traverse_trie_t *curr_trie = trie;
         while(curr_trie->get_parent())
@@ -158,4 +159,97 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths(const std::vector
     return_paths:
 
     return result_paths;
+}
+
+
+
+std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_single_list(const std::vector<cid_t>& cids, graph_t& graph, uint16_t max_cost, uint16_t max_paths)
+{
+    std::vector<ecfp4_t> cids_fp;
+    cids_fp.reserve(cids.size());
+    std::transform(cids.begin(), cids.end(), std::back_inserter(cids_fp),
+        [this](cid_t cid) { return this->retrieve_fingerprint_single(cid); });
+    
+    std::unordered_map<cid_t, double> cids_sim;
+    
+    using traverse_trie_t = Trie<int, cid_t>;
+    traverse_trie_t paths_trie(0);
+    auto cmp =
+    [this, &cids_fp, &cids_sim](const traverse_trie_t *a, const traverse_trie_t *b)
+    { return this->max_targets_tanimoto_cmp(a->get_key(), b->get_key(), cids_fp, cids_sim); };
+    
+    std::priority_queue<traverse_trie_t*, std::vector<traverse_trie_t*>, decltype(cmp)> pqueue(cmp);
+    for(cid_t cid : cids)
+    {
+        traverse_trie_t *src_node = paths_trie.insert_key(cid);
+        pqueue.push(src_node);
+    }
+
+    auto get_visited_cids = 
+    [](const traverse_trie_t *trie, std::unordered_set<cid_t>& visited)
+    {
+        const traverse_trie_t *curr_trie = trie;
+        while(curr_trie->get_parent())
+        {
+            visited.insert(curr_trie->get_key());
+            curr_trie = curr_trie->get_parent();
+        }
+    };
+
+    std::vector<std::vector<cid_t>> result_paths;
+
+    auto save_path_check_exit =
+    [&result_paths, max_paths] (const traverse_trie_t *trie)
+    {
+        result_paths.push_back(trie->get_path());
+        return result_paths.size() == max_paths;
+    };
+
+    while(pqueue.size())
+    {
+        traverse_trie_t *curr_trie = pqueue.top();
+        pqueue.pop();
+
+        cid_t cid = curr_trie->get_key();
+
+        std::unordered_set<cid_t> visited;
+        get_visited_cids(curr_trie, visited);
+
+        for(const auto& neigh : graph[cid])
+        {
+            cid_t neigh_cid = neigh.first;
+            if(visited.find(neigh_cid) != visited.end())
+                continue;
+
+            traverse_trie_t *neigh_trie = curr_trie->insert_key(neigh_cid);
+            if(curr_trie->get_depth() == max_cost + 1U)
+            {
+                if(save_path_check_exit(neigh_trie))
+                    goto return_paths;
+            }
+            else
+                pqueue.push(neigh_trie);
+        }
+
+        if(curr_trie->children.size() == 0)
+        {
+            if(save_path_check_exit(curr_trie))
+                goto return_paths;
+        }
+    }
+
+    return_paths:
+
+    return result_paths;
+}
+
+
+std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_sources_only(const std::vector<cid_t>& sources, uint16_t max_cost, uint16_t max_paths)
+{
+    return this->find_paths_single_list(sources, this->graph, max_cost, max_paths);
+}
+
+std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_targets_only(const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths)
+{
+    return this->find_paths_single_list(targets, this->graph_reverse, max_cost, max_paths);
 }

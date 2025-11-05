@@ -67,7 +67,7 @@ void chm::App::setup_graph()
 
     this->retrieve_fingerprints(unique_cids.begin(), unique_cids.end());
     std::cout << "Starting" << '\n';
-    auto paths = this->find_paths({313, 962}, {222, 977}, 10, 100);
+    auto paths = this->find_paths({222}, {313}, 4, 1000);
     for(const auto& path : paths)
     {
         for(cid_t node : path)
