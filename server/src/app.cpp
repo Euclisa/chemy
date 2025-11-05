@@ -65,9 +65,10 @@ void chm::App::setup_graph()
         this->graph_reverse[p_cid][r_cid].push_back(rid);
     }
 
-    this->retrieve_fingerprints(unique_cids.begin(), unique_cids.end());
+    this->retrieve_fingerprints(unique_cids);
+    std::cout << this->compound_infos[222].dump(4) << '\n';
     std::cout << "Starting" << '\n';
-    auto paths = this->find_paths({222}, {313}, 4, 1000);
+    auto paths = this->find_paths({222}, {313}, 4, 100);
     for(const auto& path : paths)
     {
         for(cid_t node : path)

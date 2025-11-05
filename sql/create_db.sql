@@ -76,6 +76,7 @@ CREATE TABLE compound_properties (
     cid INTEGER NOT NULL REFERENCES compounds(cid),
     property_name VARCHAR(100) NOT NULL,
     property_value VARCHAR(3000) NOT NULL,
+    rank INTEGER NOT NULL,
     PRIMARY KEY (cid, property_name)
 );
 

@@ -120,10 +120,10 @@ class ChemsSql(ChemsMisc):
 
 
                 sql = \
-                "INSERT INTO compound_properties (cid, property_name, property_value) " \
+                "INSERT INTO compound_properties (cid, property_name, property_value, rank) " \
                 "VALUES %s"
                 chems_properties_data = self._compile_chems_properties()
-                chems_properties_data = [(entry['cid'], prop['property'], prop['value']) for entry in chems_properties_data for prop in entry['properties']]
+                chems_properties_data = [(entry['cid'], prop['property'], prop['value'], rank) for entry in chems_properties_data for rank, prop in enumerate(entry['properties'])]
                 execute_values_advance(cur, sql, chems_properties_data)
 
                 

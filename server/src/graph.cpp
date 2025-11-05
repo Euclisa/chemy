@@ -14,7 +14,7 @@ chm::App::ecfp4_t chm::App::parse_pqxx_row_fingerprint(const pqxx::row& row)
     fp_parser.get_next();
 
     ecfp4_bits_t fp_bits;
-    for(size_t i = 0; i < ecfp4_items_num; ++i)
+    for(size_t i = 0; i < ecfp4_chunks_num; ++i)
     {
         auto parsed = fp_parser.get_next();
         if(parsed.first != fp_parser.string_value)
@@ -37,32 +37,17 @@ chm::App::ecfp4_t chm::App::parse_pqxx_row_fingerprint(const pqxx::row& row)
 chm::App::ecfp4_t chm::App::retrieve_fingerprint_single(cid_t cid)
 {
 
-    if(this->fingerprints.find(cid) != this->fingerprints.end())
-        return this->fingerprints[cid];
-
-    std::string sql_fp =
-        "SELECT cid, bits, popcount "
-        "FROM compound_fingerprints "
-        "WHERE cid = " + numeric_to_str(cid);
+    if(this->fingerprints.find(cid) == this->fingerprints.end())    
+        this->retrieve_fingerprints(std::vector<cid_t>{cid});
     
-    pqxx::result res = this->run_pqxx_request(sql_fp);
-
-    if(res.size() != 1)
-        std::invalid_argument(fmt::format("Invalid number of entries retrieved for cid {}. Got {}, expected 1", cid, res.size()));
-
-    pqxx::row row = *res.begin();
-
-    ecfp4_t fp = this->parse_pqxx_row_fingerprint(row);
-    this->fingerprints[cid] = fp;
-
-    return fp;
+    return this->fingerprints[cid];
 }
 
 
 double chm::App::compute_tanimoto(const ecfp4_t& a, const ecfp4_t& b)
 {
     ecfp4_pc_t and_pc = 0;
-    for(size_t i = 0; i < ecfp4_items_num; ++i)
+    for(size_t i = 0; i < ecfp4_chunks_num; ++i)
         and_pc += std::popcount(a.first[i] & a.first[i]);
     
     ecfp4_pc_t or_pc = a.second + b.second - and_pc;
@@ -93,6 +78,20 @@ bool chm::App::max_targets_tanimoto_cmp(const cid_t a, const cid_t b, const std:
 
 
 std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths(const std::vector<cid_t>& sources, const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths)
+{
+    if(sources.size() == 0 && targets.size() == 0)
+        return std::vector<std::vector<cid_t>>();
+
+    if(sources.size() == 0)
+        return this->find_paths_targets_only(targets, max_cost, max_paths);
+    if(targets.size() == 0)
+        return this->find_paths_sources_only(sources, max_cost, max_paths);
+    
+    return this->find_paths_both_lists(sources, targets, max_cost, max_paths);
+}
+
+
+std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_both_lists(const std::vector<cid_t>& sources, const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths)
 {
     std::vector<ecfp4_t> targets_fp;
     targets_fp.reserve(targets.size());
