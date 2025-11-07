@@ -81,15 +81,15 @@ CREATE TABLE compound_properties (
 );
 
 
-CREATE TABLE compound_commonness_sorting (
-    cid INTEGER PRIMARY KEY REFERENCES compounds(cid),
-    rank INTEGER UNIQUE NOT NULL
-);
-
-
 CREATE TABLE compound_descriptions (
     cid INTEGER PRIMARY KEY REFERENCES compounds(cid),
     description TEXT NOT NULL
+);
+
+
+CREATE TABLE compound_commonness_sorting (
+    cid INTEGER PRIMARY KEY REFERENCES compounds(cid),
+    rank INTEGER UNIQUE NOT NULL
 );
 
 

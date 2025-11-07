@@ -23,6 +23,8 @@ chm::App::App(std::string db_name, std::string user, std::string password)
         throw e;
     }
 
+    this->setup_sql();
+    this->setup_sortings();
     this->setup_graph();
     this->setup_fuzzy();
 }
@@ -35,10 +37,81 @@ chm::App::~App()
 }
 
 
-pqxx::result chm::App::run_pqxx_request(std::string sql)
+pqxx::result chm::App::run_pqxx_request(const std::string& sql)
 {
     pqxx::work tx(*this->conn);
     return tx.exec(sql);
+}
+
+
+void chm::App::setup_sql()
+{
+    std::string sql_fp =
+        "SELECT cid, bits, popcount "
+        "FROM compound_fingerprints "
+        "WHERE cid = ANY($1)";
+    this->conn->prepare("compound_fingerprints", sql_fp);
+
+    std::string sql_compound_properties =
+        "SELECT cid, property_name, property_value, rank "
+        "FROM compound_properties "
+        "WHERE cid = ANY($1)";
+    this->conn->prepare("compound_properties", sql_compound_properties);
+
+    std::string sql_compound_pictograms =
+        "SELECT cid, pictogram "
+        "FROM compound_hazard_pictograms "
+        "WHERE cid = ANY($1)";
+    this->conn->prepare("compound_pictograms", sql_compound_pictograms);
+
+    std::string sql_compound_nfpa =
+        "SELECT cid, health, flammability, instability "
+        "FROM compound_nfpa "
+        "WHERE cid = ANY($1)";
+    this->conn->prepare("compound_nfpa", sql_compound_nfpa);
+
+    std::string sql_reaction_details =
+        "SELECT r.rid, r.balanced, r.complexity, r.source, d.description, d.patent, d.doi "
+        "FROM reactions r "
+        "JOIN reaction_details d "
+        "ON r.rid = d.rid "
+        "WHERE r.rid = ANY($1)";
+    this->conn->prepare("reaction_details", sql_reaction_details);
+
+    std::string sql_reaction_reactants =
+        "SELECT rid, cid, coeff "
+        "FROM reaction_reactants "
+        "WHERE rid = ANY($1)";
+    this->conn->prepare("reaction_reactants", sql_reaction_reactants);
+
+    std::string sql_reaction_products =
+        "SELECT rid, cid, coeff "
+        "FROM reaction_products "
+        "WHERE rid = ANY($1)";
+    this->conn->prepare("reaction_products", sql_reaction_products);
+}
+
+
+void chm::App::setup_sortings()
+{
+    auto populate_sorting = [&](std::string table, sorting_t& sorting)
+    {
+        std::string sql =
+        "SELECT cid, rank "
+        "FROM " + table;
+
+        pqxx::result rows = this->run_pqxx_request(sql);
+        for(const auto& row : rows)
+        {
+            cid_t cid = row[0].as<cid_t>();
+            uint32_t rank = row[1].as<uint32_t>();
+            sorting[cid] = rank;
+        }
+    };
+
+    populate_sorting("compound_complexity_sorting", this->complexity_sorting);
+    populate_sorting("compound_commonness_sorting", this->commonness_sorting);
+    populate_sorting("compound_curiosity_sorting", this->curiosity_sorting);
 }
 
 
@@ -47,7 +120,7 @@ void chm::App::setup_graph()
     std::string sql_pairs = 
         "SELECT r.cid, p.cid, r.rid "
         "FROM reaction_reactants r "
-        "JOIN reaction_products p "
+        "LEFT JOIN reaction_products p "
         "ON r.rid = p.rid";
     
     pqxx::result pair_rows = this->run_pqxx_request(sql_pairs);
@@ -66,15 +139,11 @@ void chm::App::setup_graph()
     }
 
     this->retrieve_fingerprints(unique_cids);
-    std::cout << this->compound_infos[222].dump(4) << '\n';
+    std::cout << this->retrieve_compound_info_single(222).dump(4) << '\n';
+    this->retrieve_reaction_info_single("+hcR5qo9GYZLBXiylUkB+Q==");
+    std::cout << this->reaction_infos["+hcR5qo9GYZLBXiylUkB+Q=="].dump(4) << '\n';
     std::cout << "Starting" << '\n';
-    auto paths = this->find_paths({222}, {313}, 4, 100);
-    for(const auto& path : paths)
-    {
-        for(cid_t node : path)
-            std::cout << node << ' ';
-        std::cout << '\n';
-    }
+    std::cout << this->build_graph({222}, {313}, 4, 10, false).dump(4) << '\n';
 
     std::cout << this->graph.size() << ' ' << unique_cids.size() << "\n\n";
 }

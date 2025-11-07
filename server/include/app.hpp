@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include "fuzzy_map.hpp"
+#include "misc.hpp"
 
 namespace chm
 {
@@ -34,21 +35,34 @@ namespace chm
 
         graph_t graph, graph_reverse;
 
-        std::unordered_map<cid_t, ecfp4_t> fingerprints;
-        std::unordered_map<cid_t, nlohmann::json> compound_infos;
+        using fingerprints_t = std::unordered_map<cid_t, ecfp4_t>;
+        fingerprints_t fingerprints;
+
+        using compound_infos_t = std::unordered_map<cid_t, nlohmann::json>;
+        compound_infos_t compound_infos;
+
+        using reaction_infos_t = std::unordered_map<std::string, nlohmann::json>;
+        reaction_infos_t reaction_infos;
+
+        using reaction_participants_t = std::unordered_map<std::string, std::pair<std::vector<cid_t>, std::vector<cid_t>>>;
+        reaction_participants_t reaction_participants;
+
+        using sorting_t = std::unordered_map<cid_t, uint32_t>;
+        sorting_t complexity_sorting, commonness_sorting, curiosity_sorting;
 
         FuzzyMap<cid_t> fuzzy;
 
-        pqxx::result run_pqxx_request(std::string sql);
+        pqxx::result run_pqxx_request(const std::string& sql);
         template<typename... Args>
-        pqxx::result run_pqxx_request_params(std::string sql, Args&&... args);
+        pqxx::result run_pqxx_request_params(const std::string& sql, Args&&... args);
+        template<typename... Args>
+        pqxx::result run_pqxx_request_params_prepared(const std::string& prepared, Args&&... args);
 
+        void setup_sql();
+        void setup_sortings();
         void setup_graph();
         void setup_fuzzy();
 
-
-        template<typename Iterable, typename CidsBlacklist>
-        std::string cids_to_sql_list(Iterable cids, const CidsBlacklist& target_map);
         
         ecfp4_t parse_pqxx_row_fingerprint(const pqxx::row& row);
         template<typename Iterable>
@@ -65,10 +79,18 @@ namespace chm
         std::vector<std::vector<cid_t>> find_paths_sources_only(const std::vector<cid_t>& sources, uint16_t max_cost, uint16_t max_paths);
         std::vector<std::vector<cid_t>> find_paths_targets_only(const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths);
 
+        std::pair<std::unordered_set<cid_t>, graph_t> convert_paths_to_graph(const std::vector<std::vector<cid_t>>& paths, bool primary_only);
+
+        nlohmann::json build_graph(const std::vector<cid_t>& sources, const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths, bool primary_only);
+
 
         template<typename Iterable>
         void retrieve_compound_infos(Iterable cids);
         nlohmann::json retrieve_compound_info_single(cid_t cid);
+
+        template<typename Iterable>
+        void retrieve_reaction_infos(Iterable rids);
+        nlohmann::json retrieve_reaction_info_single(const std::string& rid);
 
     public:
         App(std::string db_name, std::string user="", std::string password="");
@@ -77,45 +99,26 @@ namespace chm
 
 
     template<typename... Args>
-    pqxx::result App::run_pqxx_request_params(std::string sql, Args&&... args)
+    pqxx::result App::run_pqxx_request_params(const std::string& sql, Args&&... args)
     {
         pqxx::work tx(*this->conn);
         return tx.exec_params(sql, std::forward<Args>(args)...);
     }
 
 
-    template<typename Iterable, typename CidsBlacklist>
-    std::string chm::App::cids_to_sql_list(Iterable cids, const CidsBlacklist& blacklist)
+    template<typename... Args>
+    pqxx::result App::run_pqxx_request_params_prepared(const std::string& prepared, Args&&... args)
     {
-        std::ostringstream cids_stream;
-        cids_stream << '{';
-        size_t added = 0;
-        for(cid_t cid : cids)
-        {
-            if(blacklist.find(cid) != blacklist.end())
-                continue;
-
-            if(added != 0)
-                cids_stream << ',';
-            cids_stream << cid;
-            ++added;
-        }
-        cids_stream << '}';
-
-        return cids_stream.str();
+        pqxx::work tx(*this->conn);
+        return tx.exec_prepared(prepared, std::forward<Args>(args)...);
     }
+
 
     template<typename Iterable>
     void chm::App::retrieve_fingerprints(Iterable cids)
     {    
-        std::string cids_str = this->cids_to_sql_list(cids, this->fingerprints);
-
-        std::string sql_fp =
-            "SELECT cid, bits, popcount "
-            "FROM compound_fingerprints "
-            "WHERE cid = ANY($1)";
-        
-        pqxx::result res = this->run_pqxx_request_params(sql_fp, cids_str);
+        std::string cids_str = entries_to_sql_list(cids, this->fingerprints);
+        pqxx::result res{this->run_pqxx_request_params_prepared("compound_fingerprints", cids_str)};
 
         for(const auto& row : res)
         {
@@ -128,16 +131,11 @@ namespace chm
     template<typename Iterable>
     void chm::App::retrieve_compound_infos(Iterable cids)
     {
-        std::string cids_str = this->cids_to_sql_list(cids, this->compound_infos);
+        std::string cids_str = entries_to_sql_list(cids, this->compound_infos);
 
-        std::unordered_map<cid_t, nlohmann::json> compound_infos;
-        
-        std::string sql_compound_properties =
-            "SELECT cid, property_name, property_value, rank "
-            "FROM compound_properties "
-            "WHERE cid = ANY($1)";
-        
-        pqxx::result prop_rows{this->run_pqxx_request_params(sql_compound_properties, cids_str)};
+        compound_infos_t compound_infos;
+
+        pqxx::result prop_rows{this->run_pqxx_request_params_prepared("compound_properties", cids_str)};
         for(const auto& row : prop_rows)
         {
             cid_t cid = row[0].as<cid_t>();
@@ -145,25 +143,15 @@ namespace chm
             std::string prop_value = row[2].as<std::string>();
             compound_infos[cid]["properties"].push_back({{"property_name", prop_name}, {"property_value", prop_value}});
         }
-        
-        std::string sql_compound_pictograms =
-            "SELECT cid, pictogram "
-            "FROM compound_hazard_pictograms "
-            "WHERE cid = ANY($1)";
-        
-        pqxx::result picts_rows{this->run_pqxx_request_params(sql_compound_pictograms, cids_str)};
+
+        pqxx::result picts_rows{this->run_pqxx_request_params_prepared("compound_pictograms", cids_str)};
         for(const auto& row : picts_rows)
         {
             cid_t cid = row[0].as<cid_t>();
             compound_infos[cid]["hazard_pictograms"].push_back(row[1].as<std::string>());
         }
         
-        std::string sql_compound_nfpa =
-            "SELECT cid, health, flammability, instability "
-            "FROM compound_nfpa "
-            "WHERE cid = ANY($1)";
-        
-        pqxx::result nfpa_rows{this->run_pqxx_request_params(sql_compound_nfpa, cids_str)};
+        pqxx::result nfpa_rows{this->run_pqxx_request_params_prepared("compound_nfpa", cids_str)};
         nlohmann::json nfpa;
         for(const auto& row : nfpa_rows)
         {
@@ -176,8 +164,69 @@ namespace chm
                 compound_infos[cid]["nfpa"]["instability"] = row[3].as<std::string>();
         }
 
-        for(auto& entry : compound_infos)
-            this->compound_infos[entry.first] = std::move(entry.second);
+        for(auto& [cid, info] : compound_infos)
+            this->compound_infos[cid] = std::move(info);
+    }
+
+
+    template<typename Iterable>
+    void chm::App::retrieve_reaction_infos(Iterable rids)
+    {
+        std::string rids_str = entries_to_sql_list(rids, this->reaction_infos);
+
+        reaction_infos_t reaction_infos;
+        reaction_participants_t reaction_participants;
+
+        pqxx::result details_rows{this->run_pqxx_request_params_prepared("reaction_details", rids_str)};
+        for(const auto& row : details_rows)
+        {
+            std::string rid = row[0].as<std::string>();
+            reaction_infos[rid]["balanced"] = row[1].as<bool>();
+            reaction_infos[rid]["complexity"] = row[2].as<float>();
+            reaction_infos[rid]["source"] = row[3].as<std::string>();
+            if(!row[4].is_null())
+                reaction_infos[rid]["description"] = row[4].as<std::string>();
+            if(!row[5].is_null())
+                reaction_infos[rid]["patent"] = row[5].as<std::string>();
+            if(!row[6].is_null())
+                reaction_infos[rid]["doi"] = row[6].as<std::string>();   
+        }
+
+
+        pqxx::result reactants_rows{this->run_pqxx_request_params_prepared("reaction_reactants", rids_str)};
+        for (const auto& row : reactants_rows)
+        {
+            std::string rid = row[0].as<std::string>();
+            nlohmann::json entry;
+            cid_t cid = row[1].as<cid_t>();
+            entry["cid"] = cid;
+            if (!row[2].is_null())
+                entry["coeff"] = row[2].as<int16_t>();
+            else
+                entry["coeff"] = nullptr;
+            reaction_infos[rid]["reactants"].push_back(entry);
+            reaction_participants[rid].first.push_back(cid);
+        }
+
+        pqxx::result products_rows{this->run_pqxx_request_params_prepared("reaction_products", rids_str)};
+        for (const auto& row : products_rows)
+        {
+            std::string rid = row[0].as<std::string>();
+            nlohmann::json entry;
+            cid_t cid = row[1].as<cid_t>();
+            entry["cid"] = cid;
+            if (!row[2].is_null())
+                entry["coeff"] = row[2].as<int16_t>();
+            else
+                entry["coeff"] = nullptr;
+            reaction_infos[rid]["products"].push_back(entry);
+            reaction_participants[rid].second.push_back(cid);
+        }
+
+        for(auto& [rid, info] : reaction_infos)
+            this->reaction_infos[rid] = std::move(info);
+        for(auto& [rid, participants] : reaction_participants)
+            this->reaction_participants[rid] = std::move(participants);
     }
 }
 

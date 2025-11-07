@@ -252,3 +252,55 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_targets_only(cons
 {
     return this->find_paths_single_list(targets, this->graph_reverse, max_cost, max_paths);
 }
+
+
+
+std::pair<std::unordered_set<chm::App::cid_t>, chm::App::graph_t> chm::App::convert_paths_to_graph(const std::vector<std::vector<cid_t>>& paths, bool primary_only)
+{
+    graph_t paths_graph;
+    std::unordered_set<cid_t> secondary_cids;
+    for(const auto& path : paths)
+    {
+        for(size_t i = 0; i < path.size()-1; ++i)
+        {
+            cid_t src = path[i];
+            cid_t tgt = path[i + 1];
+
+            auto src_it = this->graph.find(src);
+            if(src_it == this->graph.end())
+                throw std::invalid_argument("Invalid path: missing source compound");
+
+            auto tgt_it = src_it->second.find(tgt);
+            if(tgt_it == src_it->second.end())
+                throw std::invalid_argument("Invalid path: missing target compound");
+
+            paths_graph[src][tgt] = tgt_it->second;
+        }
+    }
+    
+    if(!primary_only)
+    {
+        graph_t secondary_graph;
+        for(auto& [source, targets] : paths_graph)
+        {
+            for(const auto& [target, reactions] : targets)
+            {
+                this->retrieve_reaction_infos(reactions);
+
+                for(const std::string& rid : reactions)
+                {
+                    for(cid_t src_cid : this->reaction_participants[rid].first)
+                    {
+                        if(paths_graph.find(src_cid) != paths_graph.end())
+                            continue;
+                        secondary_graph[src_cid][target].push_back(rid);
+                        secondary_cids.insert(src_cid);
+                    }
+                }
+            }
+        }
+        paths_graph.insert(secondary_graph.begin(), secondary_graph.end());
+    }
+
+    return std::make_pair(secondary_cids, paths_graph);
+}
