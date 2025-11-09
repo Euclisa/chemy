@@ -41,6 +41,13 @@ namespace chm
         fs::path DATA_DIR_PATH;
         fs::path DB_INFO_FULL_PATH;
         fs::path UI_DIR_PATH, STRUCTURES_DIR_UI_PATH;
+
+        uint32_t PAGE_SIZE = 100;
+
+        using sorting_map_t = std::unordered_map<cid_t, uint32_t>;
+        sorting_map_t complexity_sorting, commonness_sorting, curiosity_sorting;
+        std::vector<cid_t> complexity_sorted_cids, commonness_sorted_cids, curiosity_sorted_cids;
+        std::unordered_map<std::string, std::pair<sorting_map_t, std::vector<cid_t>>> sorting;
     
     private:
         pqxx::connection *conn{nullptr};
@@ -58,9 +65,6 @@ namespace chm
 
         using reaction_participants_t = std::unordered_map<std::string, std::pair<std::vector<cid_t>, std::vector<cid_t>>>;
         reaction_participants_t reaction_participants;
-
-        using sorting_t = std::unordered_map<cid_t, uint32_t>;
-        sorting_t complexity_sorting, commonness_sorting, curiosity_sorting;
 
         FuzzyMap<cid_t> fuzzy;
 
@@ -111,6 +115,8 @@ namespace chm
         nlohmann::json retrieve_reaction_info_single(const std::string& rid);
 
         nlohmann::json build_graph(const std::vector<cid_t>& sources, const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths, bool primary_only);
+
+        std::vector<cid_t> search_compounds(const std::string& query, uint32_t offset);
 
         void generate_compound_structure_svg(cid_t cid);
     };

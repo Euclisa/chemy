@@ -48,3 +48,19 @@ nlohmann::json chm::App::build_graph(const std::vector<cid_t>& sources, const st
         {"graph", graph_json}
     };
 }
+
+
+std::vector<chm::App::cid_t> chm::App::search_compounds(const std::string& query, uint32_t offset)
+{
+    auto results = this->fuzzy.search(query);
+    uint32_t results_size = results.size();
+    
+    if(results_size <= offset)
+        throw std::invalid_argument(fmt::format("Invalid offset {} for results list with size {}", offset, results_size));
+
+    uint32_t results_on_page = std::min(results_size - offset, this->PAGE_SIZE);
+    std::vector<cid_t> result_cids(results_on_page);
+    std::transform(results.begin() + offset, results.begin() + offset + results_on_page, result_cids.begin(), [](const std::pair<cid_t, double>& x) { return x.first; });
+
+    return result_cids;
+}

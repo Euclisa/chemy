@@ -133,24 +133,28 @@ void chm::App::setup_sql()
 
 void chm::App::setup_sortings()
 {
-    auto populate_sorting = [&](std::string table, sorting_t& sorting)
+    auto populate_sorting = [this](std::string table, std::string key)
     {
         std::string sql =
         "SELECT cid, rank "
         "FROM " + table;
 
         pqxx::result rows = this->run_pqxx_request(sql);
+        sorting_map_t *sorting_map = &this->sorting[key].first;
+        std::vector<cid_t> *sorted_cids = &this->sorting[key].second;
+        sorted_cids->resize(rows.size());
         for(const auto& row : rows)
         {
             cid_t cid = row[0].as<cid_t>();
             uint32_t rank = row[1].as<uint32_t>();
-            sorting[cid] = rank;
+            (*sorting_map)[cid] = rank;
+            (*sorted_cids)[rank] = cid;
         }
     };
 
-    populate_sorting("compound_complexity_sorting", this->complexity_sorting);
-    populate_sorting("compound_commonness_sorting", this->commonness_sorting);
-    populate_sorting("compound_curiosity_sorting", this->curiosity_sorting);
+    populate_sorting("compound_complexity_sorting", "complexity");
+    populate_sorting("compound_commonness_sorting", "commonness");
+    populate_sorting("compound_curiosity_sorting", "curiosity");
 }
 
 

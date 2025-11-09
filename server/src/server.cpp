@@ -140,6 +140,49 @@ void chm::Server::get_structure_request(const httplib::Request& req, httplib::Re
 }
 
 
+void chm::Server::search_request(const httplib::Request& req, httplib::Response& res)
+{
+    std::string page_str = req.has_param("page") ? req.get_param_value("page") : "1";
+    std::string sorting_order_str = req.has_param("sort") ? req.get_param_value("sort") : "complexity";
+    uint32_t page = str_to_numeric<uint32_t>(page_str);
+
+    if(page == 0)
+        throw std::invalid_argument("Page index must be >= 1");
+
+    uint32_t offset = (page - 1) * this->PAGE_SIZE;
+
+    if(this->sorting.find(sorting_order_str) == this->sorting.end())
+        throw std::invalid_argument(fmt::format("Invalid sorting order '{}'", sorting_order_str));
+    
+    const auto& [sorting_map, sorted_cids] = this->sorting[sorting_order_str];
+
+    std::vector<cid_t> query_result;
+    if (req.has_param("q")) 
+    {
+        std::string query = req.get_param_value("q");
+        query_result = this->search_compounds(query, offset);
+        
+        std::sort(query_result.begin(), query_result.end(),
+            [&sorting_map](cid_t a, cid_t b) { return sorting_map.at(a) < sorting_map.at(b); });
+    }
+    else
+    {
+        uint32_t cids_size = sorted_cids.size();
+
+        if(offset >= sorted_cids.size())
+            throw std::invalid_argument(fmt::format("Invalid offset {} for results list with size {}", offset, cids_size));
+
+        uint32_t results_on_page = std::min(cids_size - offset, this->PAGE_SIZE);
+        query_result.resize(results_on_page);
+        std::copy(sorted_cids.begin() + offset,
+            sorted_cids.begin() + offset + results_on_page,
+            query_result.begin());
+    }
+
+    res.set_content(nlohmann::json(query_result).dump(), "application/json");
+}
+
+
 void chm::Server::process_request(const std::function<void(const httplib::Request&,httplib::Response&)>& handler, const httplib::Request& req, httplib::Response& res)
 {
     try {
@@ -188,29 +231,19 @@ chm::Server::Server(const fs::path& data_dir, const std::string& listen_addr, ui
     svr.Get(svg_route,
         [&](const httplib::Request& req, httplib::Response& res)
         {
-            std::string cid_str = req.matches[1];
-            cid_t cid = str_to_numeric<cid_t>(cid_str);
-            fs::path svg_path = this->UI_DIR_PATH / this->STRUCTURES_DIR_UI_PATH / (cid_str + ".svg");
-
-            if (!fs::exists(svg_path)) {
-                try {
-                    this->generate_compound_structure_svg(cid); 
-                } catch (const std::exception& e) {
-                    res.status = 500;
-                    res.set_content(std::string("Failed to generate SVG: ") + e.what(), "text/plain");
-                    return;
-                }
-            }
-
-            std::ifstream file(svg_path);
-            if (!file.is_open()) {
-                res.status = 500;
-                res.set_content("Could not open SVG file after generation", "text/plain");
-                return;
-            }
-
-            std::string svg_content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-            res.set_content(svg_content, "image/svg+xml");
+            this->process_request(
+                [this](const httplib::Request& req, httplib::Response& res) { return this->get_structure_request(req, res); },
+                req, res
+            );
+        });
+    
+    svr.Get("/search",
+        [&](const httplib::Request &req, httplib::Response &res)
+        {
+            this->process_request(
+                [this](const httplib::Request& req, httplib::Response& res) { return this->search_request(req, res); },
+                req, res
+            );
         });
 }
 

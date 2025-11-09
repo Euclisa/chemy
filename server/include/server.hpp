@@ -21,6 +21,7 @@ namespace chm
         void get_reaction_infos_request(const httplib::Request& req, httplib::Response& res);
         void build_graph_request(const httplib::Request& req, httplib::Response& res);
         void get_structure_request(const httplib::Request& req, httplib::Response& res);
+        void search_request(const httplib::Request& req, httplib::Response& res);
 
         void process_request(const std::function<void(const httplib::Request&,httplib::Response&)>& handler, const httplib::Request& req, httplib::Response& res);
 
