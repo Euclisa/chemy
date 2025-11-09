@@ -1,11 +1,10 @@
-#include "app.hpp"
-#include "fuzzy_map.hpp"
+#include "server.hpp"
 
 
 int main()
 {
-    chm::App graph("chemistry");
-    chm::FuzzyMap<int> map;
+    chm::Server server("chemistry", "0.0.0.0", 8080);
+    server.listen();
 
     return 0;
 }

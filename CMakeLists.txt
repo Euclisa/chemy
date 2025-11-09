@@ -16,17 +16,18 @@ find_package(fmt REQUIRED)
 set(COMMON_INCLUDES
     ${LIBPQXX_INCLUDE_DIRS}
     "${CMAKE_SOURCE_DIR}/server/include/"
+    "/usr/include/rdkit"
 )
-set(COMMON_LIBS ${LIBPQXX_LIBRARIES})
+set(COMMON_LIBS ${LIBPQXX_LIBRARIES} fmt::fmt RDKitSmilesParse RDKitGraphMol RDKitDepictor RDKitMolDraw2D)
 
 
 add_executable(chem_debug ${SOURCES})
 target_include_directories(chem_debug PRIVATE ${COMMON_INCLUDES})
-target_link_libraries(chem_debug PRIVATE ${COMMON_LIBS} fmt::fmt)
+target_link_libraries(chem_debug PRIVATE ${COMMON_LIBS})
 target_compile_options(chem_debug PRIVATE -Wall -Wextra -Wpedantic -O0 -g)
 
 
 add_executable(chem_release ${SOURCES})
 target_include_directories(chem_release PRIVATE ${COMMON_INCLUDES})
-target_link_libraries(chem_release PRIVATE ${COMMON_LIBS} fmt::fmt)
+target_link_libraries(chem_release PRIVATE ${COMMON_LIBS})
 target_compile_options(chem_release PRIVATE -Wall -Wextra -Wpedantic -O3 -march=native -DNDEBUG)

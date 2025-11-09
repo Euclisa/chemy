@@ -1,15 +1,48 @@
 #include "app.hpp"
+
 #include <iostream>
+#include <fstream>
 #include <unordered_set>
 #include <cstdarg>
 
+#include <GraphMol/ROMol.h>
+#include <GraphMol/SmilesParse/SmilesParse.h>
+#include <GraphMol/Depictor/RDDepictor.h>
+#include <GraphMol/MolDraw2D/MolDraw2DSVG.h>
 
-chm::App::App(std::string db_name, std::string user, std::string password)
+
+
+chm::App::App(const fs::path& data_dir)
 {
-    std::string pq_params = "dbname=" + db_name;
-    if(user.size() != 0)
+    this->DATA_DIR_PATH = data_dir;
+
+    this->DB_INFO_FULL_PATH = this->DATA_DIR_PATH / this->DB_INFO_REL_PATH;
+    if(!fs::exists(this->DB_INFO_FULL_PATH))
+        throw std::invalid_argument(
+            fmt::format("Failed to find db info file in provided data directory: {}",
+                (std::string)this->DB_INFO_FULL_PATH));
+
+    std::ifstream dbfin(this->DB_INFO_FULL_PATH);
+    if(dbfin.is_open())
+        throw std::invalid_argument(
+            fmt::format("Failed to open db info file: {}",
+                (std::string)this->DB_INFO_FULL_PATH));
+    
+    std::stringstream db_info_buffer;
+    db_info_buffer << dbfin.rdbuf();
+    std::string db_info_str = db_info_buffer.str(); 
+    
+    nlohmann::json db_info = nlohmann::json::parse(db_info_str);
+
+    this->UI_DIR_PATH = this->DATA_DIR_PATH / "ui";
+    this->STRUCTURES_DIR_UI_PATH = "assets/structures";
+
+    std::string pq_params = "dbname=" + (std::string)db_info["dbname"];
+    if(db_info.contains("user"))
     {
-        pq_params += " user=" + user;
+        pq_params += " user=" + (std::string)db_info["user"];
+        
+        std::string password = db_info.contains("password") ? (std::string)db_info["password"] : std::string("");
         pq_params += " password=" + password;
     }
     
@@ -51,6 +84,12 @@ void chm::App::setup_sql()
         "FROM compound_fingerprints "
         "WHERE cid = ANY($1)";
     this->conn->prepare("compound_fingerprints", sql_fp);
+
+    std::string sql_compounds =
+        "SELECT cid, smiles "
+        "FROM compounds "
+        "WHERE cid = ANY($1)";
+    this->conn->prepare("compounds", sql_compounds);
 
     std::string sql_compound_properties =
         "SELECT cid, property_name, property_value, rank "
@@ -178,3 +217,27 @@ void chm::App::setup_fuzzy()
 }
 
 
+
+void chm::App::generate_compound_structure_svg(cid_t cid)
+{
+    fs::path svg_path = this->UI_DIR_PATH / this->STRUCTURES_DIR_UI_PATH / fmt::format("{}.svg", cid);
+    if(fs::exists(svg_path))
+        return;
+
+    std::string smiles = this->compound_infos[cid]["smiles"];
+    RDKit::RWMol* mol = RDKit::SmilesToMol(smiles);
+
+    if (!mol) return;
+
+    RDDepict::compute2DCoords(*mol);
+
+    std::ostringstream svg;
+    RDKit::MolDraw2DSVG drawer(300, 200);
+    drawer.drawMolecule(*mol);
+    drawer.finishDrawing();
+    svg << drawer.getDrawingText();
+
+    std::cout << svg.str() << std::endl;
+
+    delete mol;
+}

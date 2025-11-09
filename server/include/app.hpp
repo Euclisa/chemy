@@ -7,11 +7,16 @@
 #include <unordered_map>
 #include <cstdint>
 #include <array>
+#include <filesystem>
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
 #include "fuzzy_map.hpp"
 #include "misc.hpp"
+
+
+namespace fs = std::filesystem;
+
 
 namespace chm
 {
@@ -30,6 +35,13 @@ namespace chm
         using ecfp4_t = std::pair<ecfp4_bits_t, ecfp4_pc_t>;
         static constexpr uint32_t fp_bits_num = ecfp4_chunks_num*sizeof(ecfp4_chunk_t)*8;
 
+        inline static const fs::path DB_INFO_REL_PATH = "db.json";
+
+    protected:
+        fs::path DATA_DIR_PATH;
+        fs::path DB_INFO_FULL_PATH;
+        fs::path UI_DIR_PATH, STRUCTURES_DIR_UI_PATH;
+    
     private:
         pqxx::connection *conn{nullptr};
 
@@ -81,20 +93,26 @@ namespace chm
 
         std::pair<std::unordered_set<cid_t>, graph_t> convert_paths_to_graph(const std::vector<std::vector<cid_t>>& paths, bool primary_only);
 
-        nlohmann::json build_graph(const std::vector<cid_t>& sources, const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths, bool primary_only);
+    public:
+        App(const fs::path& data_dir);
+        ~App();
 
 
         template<typename Iterable>
         void retrieve_compound_infos(Iterable cids);
+        template<typename Iterable>
+        nlohmann::json retrieve_compound_infos_json(Iterable cids);
         nlohmann::json retrieve_compound_info_single(cid_t cid);
 
         template<typename Iterable>
         void retrieve_reaction_infos(Iterable rids);
+        template<typename Iterable>
+        nlohmann::json retrieve_reaction_infos_json(Iterable rids);
         nlohmann::json retrieve_reaction_info_single(const std::string& rid);
 
-    public:
-        App(std::string db_name, std::string user="", std::string password="");
-        ~App();
+        nlohmann::json build_graph(const std::vector<cid_t>& sources, const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths, bool primary_only);
+
+        void generate_compound_structure_svg(cid_t cid);
     };
 
 
@@ -135,6 +153,14 @@ namespace chm
 
         compound_infos_t compound_infos;
 
+        pqxx::result cmpd_rows{this->run_pqxx_request_params_prepared("compounds", cids_str)};
+        for(const auto& row : cmpd_rows)
+        {
+            cid_t cid = row[0].as<cid_t>();
+            std::string smiles = row[1].as<std::string>();
+            compound_infos[cid]["smiles"] = smiles;
+        }
+
         pqxx::result prop_rows{this->run_pqxx_request_params_prepared("compound_properties", cids_str)};
         for(const auto& row : prop_rows)
         {
@@ -166,6 +192,19 @@ namespace chm
 
         for(auto& [cid, info] : compound_infos)
             this->compound_infos[cid] = std::move(info);
+    }
+
+
+    template<typename Iterable>
+    nlohmann::json chm::App::retrieve_compound_infos_json(Iterable cids)
+    {
+        this->retrieve_compound_infos(cids);
+
+        nlohmann::json compound_infos;
+        for(cid_t cid : cids)
+            compound_infos.push_back(this->compound_infos[cid]);
+        
+        return compound_infos;
     }
 
 
@@ -227,6 +266,18 @@ namespace chm
             this->reaction_infos[rid] = std::move(info);
         for(auto& [rid, participants] : reaction_participants)
             this->reaction_participants[rid] = std::move(participants);
+    }
+
+    template<typename Iterable>
+    nlohmann::json chm::App::retrieve_reaction_infos_json(Iterable rids)
+    {
+        this->retrieve_reaction_infos(rids);
+
+        nlohmann::json reaction_infos;
+        for(const std::string& rid : rids)
+            reaction_infos.push_back(this->reaction_infos[rid]);
+        
+        return reaction_infos;
     }
 }
 

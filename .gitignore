@@ -6,6 +6,7 @@ __pycache__/
 *_tmp/
 /build/
 .vscode
+/data/ui/assets/structures
 
 *.backup
 /*.json
