@@ -17,9 +17,10 @@ namespace chm
         std::string listen_addr;
         uint16_t listen_port;
 
-        void get_compound_infos_request(const httplib::Request& req, httplib::Response& res);
-        void get_reaction_infos_request(const httplib::Request& req, httplib::Response& res);
+        void compound_info_request(const httplib::Request& req, httplib::Response& res);
+        void reaction_info_request(const httplib::Request& req, httplib::Response& res);
         void build_graph_request(const httplib::Request& req, httplib::Response& res);
+        void adjacent_edges_request(const httplib::Request& req, httplib::Response& res);
         void get_structure_request(const httplib::Request& req, httplib::Response& res);
         void search_request(const httplib::Request& req, httplib::Response& res);
 

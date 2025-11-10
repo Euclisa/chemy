@@ -24,24 +24,7 @@ nlohmann::json chm::App::retrieve_reaction_info_single(const std::string& rid)
 nlohmann::json chm::App::build_graph(const std::vector<cid_t>& sources, const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths, bool primary_only)
 {
     auto paths{this->find_paths(sources, targets, max_cost, max_paths)};
-    auto [secondary_cids, paths_graph] = this->convert_paths_to_graph(paths, primary_only);
-
-    nlohmann::json graph_json;
-    for(const auto& [source, target_entries] : paths_graph)
-    {
-        nlohmann::json source_entry = {
-            {"cid", source},
-            {"primary", secondary_cids.find(source) == secondary_cids.end()},
-            {"targets", nlohmann::json::array()}
-        };
-
-        for(const auto& [target, reactions] : target_entries)
-            source_entry["targets"].emplace_back(
-                nlohmann::json{{"cid", target}, {"reactions", reactions}}
-            );
-
-        graph_json.push_back(source_entry);
-    }
+    nlohmann::json graph_json = this->convert_paths_to_graph(paths, primary_only);
 
     return {
         {"params", {{"max_cost", max_cost}, {"max_paths", max_paths}, {"primary_only", primary_only}}},
@@ -50,7 +33,7 @@ nlohmann::json chm::App::build_graph(const std::vector<cid_t>& sources, const st
 }
 
 
-std::vector<chm::App::cid_t> chm::App::search_compounds(const std::string& query, uint32_t offset)
+std::pair<std::vector<chm::App::cid_t>, bool> chm::App::search_compounds(const std::string& query, uint32_t offset)
 {
     auto results = this->fuzzy.search(query);
     uint32_t results_size = results.size();
@@ -62,5 +45,7 @@ std::vector<chm::App::cid_t> chm::App::search_compounds(const std::string& query
     std::vector<cid_t> result_cids(results_on_page);
     std::transform(results.begin() + offset, results.begin() + offset + results_on_page, result_cids.begin(), [](const std::pair<cid_t, double>& x) { return x.first; });
 
-    return result_cids;
+    bool is_end = results_size == (offset + results_on_page);
+
+    return std::make_pair(result_cids, is_end);
 }

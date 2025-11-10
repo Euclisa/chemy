@@ -9,6 +9,8 @@
 #include <array>
 #include <filesystem>
 #include <fmt/format.h>
+#include <fmt/color.h>
+#include <fmt/core.h>
 #include <nlohmann/json.hpp>
 
 #include "fuzzy_map.hpp"
@@ -26,7 +28,6 @@ namespace chm
         static constexpr double epsilon = 1e-6;
         
         using cid_t = int32_t;
-        using graph_t = std::unordered_map<cid_t, std::unordered_map<cid_t, std::vector<std::string>>>;
 
         static constexpr uint16_t ecfp4_chunks_num = 16;
         using ecfp4_chunk_t = uint64_t;
@@ -48,11 +49,14 @@ namespace chm
         sorting_map_t complexity_sorting, commonness_sorting, curiosity_sorting;
         std::vector<cid_t> complexity_sorted_cids, commonness_sorted_cids, curiosity_sorted_cids;
         std::unordered_map<std::string, std::pair<sorting_map_t, std::vector<cid_t>>> sorting;
+
+        using graph_t = std::unordered_map<cid_t, std::unordered_map<cid_t, std::vector<std::string>>>;
+        graph_t graph, graph_reverse;
+
+        nlohmann::json convert_paths_to_graph(const std::vector<std::vector<cid_t>>& paths, bool primary_only);
     
     private:
         pqxx::connection *conn{nullptr};
-
-        graph_t graph, graph_reverse;
 
         using fingerprints_t = std::unordered_map<cid_t, ecfp4_t>;
         fingerprints_t fingerprints;
@@ -95,8 +99,6 @@ namespace chm
         std::vector<std::vector<cid_t>> find_paths_sources_only(const std::vector<cid_t>& sources, uint16_t max_cost, uint16_t max_paths);
         std::vector<std::vector<cid_t>> find_paths_targets_only(const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths);
 
-        std::pair<std::unordered_set<cid_t>, graph_t> convert_paths_to_graph(const std::vector<std::vector<cid_t>>& paths, bool primary_only);
-
     public:
         App(const fs::path& data_dir);
         ~App();
@@ -116,7 +118,7 @@ namespace chm
 
         nlohmann::json build_graph(const std::vector<cid_t>& sources, const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths, bool primary_only);
 
-        std::vector<cid_t> search_compounds(const std::string& query, uint32_t offset);
+        std::pair<std::vector<cid_t>, bool> search_compounds(const std::string& query, uint32_t offset);
 
         void generate_compound_structure_svg(cid_t cid);
     };

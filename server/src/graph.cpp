@@ -255,7 +255,7 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_targets_only(cons
 
 
 
-std::pair<std::unordered_set<chm::App::cid_t>, chm::App::graph_t> chm::App::convert_paths_to_graph(const std::vector<std::vector<cid_t>>& paths, bool primary_only)
+nlohmann::json chm::App::convert_paths_to_graph(const std::vector<std::vector<cid_t>>& paths, bool primary_only)
 {
     graph_t paths_graph;
     std::unordered_set<cid_t> secondary_cids;
@@ -302,5 +302,22 @@ std::pair<std::unordered_set<chm::App::cid_t>, chm::App::graph_t> chm::App::conv
         paths_graph.insert(secondary_graph.begin(), secondary_graph.end());
     }
 
-    return std::make_pair(secondary_cids, paths_graph);
+    nlohmann::json graph_json;
+    for(const auto& [source, target_entries] : paths_graph)
+    {
+        nlohmann::json source_entry = {
+            {"cid", source},
+            {"primary", secondary_cids.find(source) == secondary_cids.end()},
+            {"targets", nlohmann::json::array()}
+        };
+
+        for(const auto& [target, reactions] : target_entries)
+            source_entry["targets"].emplace_back(
+                nlohmann::json{{"cid", target}, {"reactions", reactions}}
+            );
+
+        graph_json.push_back(source_entry);
+    }
+
+    return graph_json;
 }

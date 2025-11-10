@@ -155,6 +155,8 @@ void chm::App::setup_sortings()
     populate_sorting("compound_complexity_sorting", "complexity");
     populate_sorting("compound_commonness_sorting", "commonness");
     populate_sorting("compound_curiosity_sorting", "curiosity");
+
+    this->sorting["none"].second = this->sorting["commonness"].second;
 }
 
 

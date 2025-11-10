@@ -2,7 +2,7 @@
 #include <fstream>
 
 
-void chm::Server::get_compound_infos_request(const httplib::Request& req, httplib::Response& res)
+void chm::Server::compound_info_request(const httplib::Request& req, httplib::Response& res)
 {
     std::string body = req.body;
 
@@ -96,7 +96,23 @@ void chm::Server::build_graph_request(const httplib::Request& req, httplib::Resp
 }
 
 
-void chm::Server::get_reaction_infos_request(const httplib::Request& req, httplib::Response& res)
+void chm::Server::adjacent_edges_request(const httplib::Request& req, httplib::Response& res)
+{
+    if(!req.has_param("cid"))
+        throw std::invalid_argument("'cid' paramter must be present");
+
+    cid_t cid = str_to_numeric<cid_t>(req.get_param_value("cid"));
+    std::vector<std::vector<cid_t>> edges;
+    for(const auto& [target_cid, reactions] : this->graph)
+        edges.push_back({cid, target_cid});
+    for(const auto& [source_cid, reactions] : this->graph_reverse)
+        edges.push_back({source_cid, cid});
+
+    res.set_content(this->convert_paths_to_graph(edges, true).dump(), "application/json");
+}
+
+
+void chm::Server::reaction_info_request(const httplib::Request& req, httplib::Response& res)
 {
     std::string body = req.body;
     nlohmann::json rids_json = nlohmann::json::parse(body);;
@@ -143,7 +159,7 @@ void chm::Server::get_structure_request(const httplib::Request& req, httplib::Re
 void chm::Server::search_request(const httplib::Request& req, httplib::Response& res)
 {
     std::string page_str = req.has_param("page") ? req.get_param_value("page") : "1";
-    std::string sorting_order_str = req.has_param("sort") ? req.get_param_value("sort") : "complexity";
+    std::string sorting_order_str = req.has_param("sorting_order") ? req.get_param_value("sorting_order") : "none";
     uint32_t page = str_to_numeric<uint32_t>(page_str);
 
     if(page == 0)
@@ -157,19 +173,23 @@ void chm::Server::search_request(const httplib::Request& req, httplib::Response&
     const auto& [sorting_map, sorted_cids] = this->sorting[sorting_order_str];
 
     std::vector<cid_t> query_result;
+    bool is_end;
     if (req.has_param("q")) 
     {
         std::string query = req.get_param_value("q");
-        query_result = this->search_compounds(query, offset);
+        auto search_result = this->search_compounds(query, offset);
+        query_result = std::move(search_result.first);
+        is_end = search_result.second;
         
-        std::sort(query_result.begin(), query_result.end(),
-            [&sorting_map](cid_t a, cid_t b) { return sorting_map.at(a) < sorting_map.at(b); });
+        if(sorting_order_str != "none")
+            std::sort(query_result.begin(), query_result.end(),
+                [&sorting_map](cid_t a, cid_t b) { return sorting_map.at(a) < sorting_map.at(b); });
     }
     else
     {
         uint32_t cids_size = sorted_cids.size();
 
-        if(offset >= sorted_cids.size())
+        if(offset >= cids_size)
             throw std::invalid_argument(fmt::format("Invalid offset {} for results list with size {}", offset, cids_size));
 
         uint32_t results_on_page = std::min(cids_size - offset, this->PAGE_SIZE);
@@ -177,9 +197,11 @@ void chm::Server::search_request(const httplib::Request& req, httplib::Response&
         std::copy(sorted_cids.begin() + offset,
             sorted_cids.begin() + offset + results_on_page,
             query_result.begin());
+        
+        is_end = (offset + results_on_page) == cids_size;
     }
 
-    res.set_content(nlohmann::json(query_result).dump(), "application/json");
+    res.set_content(nlohmann::json({{"cids", query_result}, {"is_end", is_end}}).dump(), "application/json");
 }
 
 
@@ -204,7 +226,7 @@ chm::Server::Server(const fs::path& data_dir, const std::string& listen_addr, ui
         [this](const httplib::Request& req, httplib::Response& res)
         {
             this->process_request(
-                [this](const httplib::Request& req, httplib::Response& res) { return this->get_compound_infos_request(req, res); },
+                [this](const httplib::Request& req, httplib::Response& res) { return this->compound_info_request(req, res); },
                 req, res
             );
         });
@@ -213,7 +235,7 @@ chm::Server::Server(const fs::path& data_dir, const std::string& listen_addr, ui
         [this](const httplib::Request& req, httplib::Response& res)
         {
             this->process_request(
-                [this](const httplib::Request& req, httplib::Response& res) { return this->get_reaction_infos_request(req, res); },
+                [this](const httplib::Request& req, httplib::Response& res) { return this->reaction_info_request(req, res); },
                 req, res
             );
         });
@@ -245,11 +267,41 @@ chm::Server::Server(const fs::path& data_dir, const std::string& listen_addr, ui
                 req, res
             );
         });
+    
+    svr.Get("/adjacent_edges",
+        [&](const httplib::Request &req, httplib::Response &res)
+        {
+            this->process_request(
+                [this](const httplib::Request& req, httplib::Response& res) { return this->adjacent_edges_request(req, res); },
+                req, res
+            );
+        });
+    
+    svr.set_post_routing_handler([](const httplib::Request& req, httplib::Response& res) {
+        using namespace fmt::literals;
+
+        fmt::color status_color;
+        if (res.status >= 500) status_color = fmt::color::yellow;
+        else if (res.status >= 400) status_color = fmt::color::red;
+        else if (res.status >= 300) status_color = fmt::color::gray;
+        else if (res.status >= 200) status_color = fmt::color::green;
+        else status_color = fmt::color::white;
+
+        fmt::print(fg(fmt::color::white), "API Request: ");
+        fmt::print(fg(fmt::color::cyan) | fmt::emphasis::bold, "{} ", req.path);
+        fmt::print(fg(status_color) | fmt::emphasis::bold, "[{}]", res.status);
+
+        if (res.status >= 400 && !res.body.empty())
+            fmt::print(fg(fmt::color::red) | fmt::emphasis::italic, " Body: {}", res.body);
+
+        fmt::print("\n");
+    });
 }
 
 
 
 void chm::Server::listen()
 {
+    fmt::print("Server is listening on {}:{}\n", this->listen_addr, this->listen_port);
     this->svr.listen(this->listen_addr, this->listen_port);
 }
