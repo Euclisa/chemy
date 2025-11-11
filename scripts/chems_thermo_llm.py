@@ -198,6 +198,9 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
             if react['rid'] not in thermo_map:
                 return False
             
+            if react['source'] == self.ord_source:
+                return False
+            
             CHEM_REACT_OCCURENCE_THR = 3
             
             all_cids = self._get_all_reaction_cids(react)
@@ -217,18 +220,17 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
                 cid_to_react_i.setdefault(cid, []).append(react_i)
         
 
-        def normalize_mean(mean):
-            MEAN_NORM_THR = 1
-            return mean if abs(mean) > MEAN_NORM_THR else MEAN_NORM_THR
+        def normalize_value(value):
+            VALUE_NORM_THR = 1
+            return value if abs(value) > VALUE_NORM_THR else VALUE_NORM_THR
         
         dim = len(cid_to_index)
-        A = lil_matrix((dim, dim))
+        A_dH, A_dG = lil_matrix((dim, dim)), lil_matrix((dim, dim))
         b_dH, b_dG = np.zeros(dim), np.zeros(dim)
-        for cid, cid_i in cid_to_index.items():
+        for cid, cid_i in self._rich_track(cid_to_index.items(), "Computing MRSE matrix", total=len(cid_to_index)):
             for react_i in cid_to_react_i[cid]:
                 reaction = reactions[react_i]
                 balance = self.reactions_balance[reaction['rid']]
-                reaction_thermo_mean = thermo_map[reaction['rid']]['mean']
                 reaction_thermo_estimates = thermo_map[reaction['rid']]['estimates']
 
                 def get_cid_reaction_coeff(reaction, cid):
@@ -243,23 +245,29 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
                     raise Exception(f"CID {cid} not found in reaction with RID: {reaction['rid']}")
                 
                 cid_reaction_coeff = get_cid_reaction_coeff(reaction, cid)
-
-                for reagent in reaction['reagents']:
-                    reagent_cid_i = cid_to_index[reagent['cid']]
-                    A[cid_i, reagent_cid_i] -= balance[cid] * cid_reaction_coeff * len(reaction_thermo_estimates)
-                
-                for product in reaction['products']:
-                    product_cid_i = cid_to_index[product['cid']]
-                    A[cid_i, product_cid_i] += balance[cid] * cid_reaction_coeff * len(reaction_thermo_estimates)
                 
                 for est in reaction_thermo_estimates:
-                    b_dH[cid_i] += est['dH'] * cid_reaction_coeff / normalize_mean(reaction_thermo_mean['dH'])
-                    b_dG[cid_i] += est['dG'] * cid_reaction_coeff / normalize_mean(reaction_thermo_mean['dG'])
-        
-        A_csr = A.tocsr()
+                    common_term = balance[cid] * cid_reaction_coeff
+                    norm_est_dH = normalize_value(est['dH']) ** 2
+                    norm_est_dG = normalize_value(est['dG']) ** 2
 
-        dH = lsqr(A_csr, b_dH)[0]
-        dG = lsqr(A_csr, b_dG)[0]
+                    for reagent in reaction['reagents']:
+                        reagent_cid_i = cid_to_index[reagent['cid']]
+                        A_dH[cid_i, reagent_cid_i] -= common_term / norm_est_dH
+                        A_dG[cid_i, reagent_cid_i] -= common_term / norm_est_dG
+                    
+                    for product in reaction['products']:
+                        product_cid_i = cid_to_index[product['cid']]
+                        A_dH[cid_i, product_cid_i] += common_term / norm_est_dH
+                        A_dG[cid_i, product_cid_i] += common_term / norm_est_dG
+
+                    b_dH[cid_i] += est['dH'] * cid_reaction_coeff / norm_est_dH
+                    b_dG[cid_i] += est['dG'] * cid_reaction_coeff / norm_est_dG
+        
+        A_dH_csr, A_dG_csr = A_dH.tocsr(), A_dG.tocsr()
+
+        dH = lsqr(A_dH_csr, b_dH)[0]
+        dG = lsqr(A_dG_csr, b_dG)[0]
 
         cid_to_dH = {cid: dH[cid_i] for cid, cid_i in cid_to_index.items()}
         cid_to_dG = {cid: dG[cid_i] for cid, cid_i in cid_to_index.items()}
@@ -274,31 +282,46 @@ class ChemsThermoLLM(ChemsThermo, ChemsLLMFetch):
         self._write_jsonl(formation_thermo, self.chems_formation_thermo_llm_fn)
 
 
-        def compute_reaction_thermo(reaction, value_mean, cid_to_value):
+        def compute_reaction_thermo(reaction, cid_to_value):
             balance = self.reactions_balance[reaction['rid']]
             value = 0
             for r in reaction['reagents']:
-                value -= balance[r['cid']] * cid_to_value[r['cid']] * normalize_mean(value_mean)
+                value -= balance[r['cid']] * cid_to_value[r['cid']]
             for p in reaction['products']:
-                value += balance[p['cid']] * cid_to_value[p['cid']] * normalize_mean(value_mean)
+                value += balance[p['cid']] * cid_to_value[p['cid']]
             
             return value
         
         corrected_thermo = []
         for react in reactions:
-            dH_mean = thermo_map[react['rid']]['mean']['dH']
-            dH_corrected = compute_reaction_thermo(react, dH_mean, cid_to_dH)
-
-            dG_mean = thermo_map[react['rid']]['mean']['dG']
-            dG_corrected = compute_reaction_thermo(react, dG_mean, cid_to_dG)
+            dH_corrected = compute_reaction_thermo(react, cid_to_dH)
+            dG_corrected = compute_reaction_thermo(react, cid_to_dG)
             
             corrected_thermo.append({'rid': react['rid'], 'dH': dH_corrected, 'dG': dG_corrected})
         
         self._write_jsonl(corrected_thermo, self.corrected_reactions_thermo_llm_fn)
+    
+
+    def test(self):
+        reactions_dH = self._load_jsonl_map(self.corrected_reactions_thermo_llm_fn, 'rid', 'dH')
+        thermo_entries = self._load_jsonl_map(self.reactions_thermo_llm_fn, 'rid', 'mean')
+        reactions = self.parsed_reactions_balanced
+        reactions = list(filter(lambda x: x['rid'] in reactions_dH, reactions))
+        from random import sample
+
+        res = []
+        for x in sample(reactions, 10):
+            rid = x['rid']
+            x_str = self._get_reaction_as_str(x)
+            dH_corr = reactions_dH[rid]
+            dH_mean = thermo_entries[rid]['dH']
+            print(f"'{x_str}': dH_mean = {dH_mean} kcal/mol; dH_corr = {dH_corr} kcal/mol")
+            
+        
 
     
 
 
 if __name__ == "__main__":
     thermo_llm = ChemsThermoLLM('data/')
-    thermo_llm.process_llm_thermo_estimates()
+    thermo_llm.test()

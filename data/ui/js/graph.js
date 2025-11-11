@@ -178,6 +178,42 @@ function getProcessedLinks() {
     return links;
 }
 
+
+class Graph {
+    constructor(max_paths, max_len) {
+        this.max_paths = max_paths;
+        this.max_len = max_len;
+        this.primary_only = false;
+    }
+
+    async submit() {
+        const sources = Array.from(sourceNodes);
+        const targets = Array.from(targetNodes);
+
+        const post_body = {
+            "sources": sources,
+            "targets": targets,
+            "max_paths": this.max_paths,
+            "primary_only": this.primary_only
+        };
+
+        const response = await fetch("/api/build_graph", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(post_body)
+        });
+
+        if (!response.ok) throw new Error(`HTTP error during graph fetch! status: ${response.status}`);
+
+        const data = await response.json();
+
+        
+
+    }
+}
+
 function handleSubmit() {
     secondaryNodes = new Set();
     directedEdges = new Set();
