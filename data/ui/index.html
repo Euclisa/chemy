@@ -9,7 +9,7 @@
   href="css/fontawesome-all.css"
 />
 
-<link rel="icon" type="image/x-icon" href="data/assets/favicon.ico">
+<link rel="icon" type="image/x-icon" href="assets/favicon.ico">
 
 <script src="js/libs/fuse.min.js"></script>
 <script src="js/libs/d3.v7.min.js"></script>
@@ -54,22 +54,22 @@
 
     <div class="side-panel" id="sidePanel" role="complementary" aria-hidden="true" aria-label="Side panel">
         <div class="panel-content">
-            <div class="search-bar">
-                <input type="text" id="search-input" placeholder="Search compounds..." />
-                <button class="submit-btn" id="submit-button">
+            <div class="sliders-submit-container">
+                <div class="sliders-container">
+                    <div class="slider-container">
+                        <label for="k-slider">Top K:</label>
+                        <input type="range" id="k-slider" min="1" max="11" value="2">
+                        <span id="k-value">2</span>
+                    </div>
+                    <div class="slider-container">
+                        <label for="n-slider">Max Length N:</label>
+                        <input type="range" id="n-slider" min="1" max="10" value="3">
+                        <span id="n-value">3</span>
+                    </div>
+                </div>
+                <button class="submit-paths-btn" id="submit-paths-button">
                     <i class="fa fa-check"></i>
                 </button>
-            </div>
-
-            <div class="slider-container">
-                <label for="k-slider">Top K:</label>
-                <input type="range" id="k-slider" min="1" max="11" value="2">
-                <span id="k-value">2</span>
-            </div>
-            <div class="slider-container">
-                <label for="n-slider">Max Length N:</label>
-                <input type="range" id="n-slider" min="1" max="10" value="3">
-                <span id="n-value">3</span>
             </div>
 
             <div class="path-section">
@@ -95,17 +95,35 @@
                             <i class="fa fa-sort"></i>
                         </button>
                         <ul class="filter-menu">
-                            <li data-sort="common-asc"><strong>Commonness</strong><i class="fa-solid fa-sort-up"></i></li>
-                            <li data-sort="common-desc"><strong>Commonness</strong><i class="fa-solid fa-sort-down"></i></li>
-                            <li data-sort="complex-asc"><strong>Complexity</strong><i class="fa-solid fa-sort-up"></i></li>
-                            <li data-sort="complex-desc"><strong>Complexity</strong><i class="fa-solid fa-sort-down"></i></li>
-                            <li data-sort="curious-asc"><strong>Curiosity</strong><i class="fa-solid fa-sort-up"></i></li>
-                            <li data-sort="curious-desc"><strong>Curiosity</strong><i class="fa-solid fa-sort-down"></i></li>
+                            <li data-sort-order="commonness" data-sort-direction="asc">
+                                <strong>Commonness</strong><i class="fa-solid fa-sort-up"></i>
+                            </li>
+                            <li data-sort-order="commonness" data-sort-direction="desc">
+                                <strong>Commonness</strong><i class="fa-solid fa-sort-down"></i>
+                            </li>
+                            <li data-sort-order="complexity" data-sort-direction="asc">
+                                <strong>Complexity</strong><i class="fa-solid fa-sort-up"></i>
+                            </li>
+                            <li data-sort-order="complexity" data-sort-direction="desc">
+                                <strong>Complexity</strong><i class="fa-solid fa-sort-down"></i>
+                            </li>
+                            <li data-sort-order="curiosity" data-sort-direction="asc">
+                                <strong>Curiosity</strong><i class="fa-solid fa-sort-up"></i>
+                            </li>
+                            <li data-sort-order="curiosity" data-sort-direction="desc">
+                                <strong>Curiosity</strong><i class="fa-solid fa-sort-down"></i>
+                            </li>
                         </ul>
                     </div>
                     <button class="filter-button filter-button-filter">
-                        <strong>Filter</strong><i class="fa-solid fa-filter"></i>
+                        <i class="fa-solid fa-filter"></i>
                     </button>
+                    <div class="search-bar">
+                        <input type="text" id="search-input" placeholder="Search compounds..." />
+                        <button class="search-btn" id="search-button">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="results" id="results-container">
                     <div class="loading-indicator">
@@ -123,8 +141,12 @@
     </button>
   </div>
 
+
+<script src="js/compounds.js"></script>
+<script src="js/items_list.js"></script>
+<script src="js/results_list.js"></script>
+<script src="js/paths_list.js"></script>
 <script src="js/init_data.js"></script>
-<script src="js/side_panel.js"></script>
 <script src="js/popup.js"></script>
 <script src="js/graph.js"></script>
 <script src="js/misc.js"></script>

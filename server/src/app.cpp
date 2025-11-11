@@ -23,7 +23,7 @@ chm::App::App(const fs::path& data_dir)
                 (std::string)this->DB_INFO_FULL_PATH));
 
     std::ifstream dbfin(this->DB_INFO_FULL_PATH);
-    if(dbfin.is_open())
+    if(!dbfin.is_open())
         throw std::invalid_argument(
             fmt::format("Failed to open db info file: {}",
                 (std::string)this->DB_INFO_FULL_PATH));
@@ -72,8 +72,11 @@ chm::App::~App()
 
 pqxx::result chm::App::run_pqxx_request(const std::string& sql)
 {
+    std::lock_guard<std::mutex> lock(this->conn_mutex);
     pqxx::work tx(*this->conn);
-    return tx.exec(sql);
+    pqxx::result result = tx.exec(sql);
+    tx.commit();
+    return result;
 }
 
 
@@ -86,9 +89,11 @@ void chm::App::setup_sql()
     this->conn->prepare("compound_fingerprints", sql_fp);
 
     std::string sql_compounds =
-        "SELECT cid, smiles "
-        "FROM compounds "
-        "WHERE cid = ANY($1)";
+        "SELECT c.cid, c.name, c.smiles, w.wiki "
+        "FROM compounds c "
+        "LEFT JOIN compound_wiki w "
+        "ON c.cid = w.cid "
+        "WHERE c.cid = ANY($1)";
     this->conn->prepare("compounds", sql_compounds);
 
     std::string sql_compound_properties =
@@ -109,10 +114,16 @@ void chm::App::setup_sql()
         "WHERE cid = ANY($1)";
     this->conn->prepare("compound_nfpa", sql_compound_nfpa);
 
+    std::string sql_compound_descriptions =
+        "SELECT cid, description "
+        "FROM compound_descriptions "
+        "WHERE cid = ANY($1)";
+    this->conn->prepare("compound_descriptions", sql_compound_descriptions);
+
     std::string sql_reaction_details =
         "SELECT r.rid, r.balanced, r.complexity, r.source, d.description, d.patent, d.doi "
         "FROM reactions r "
-        "JOIN reaction_details d "
+        "LEFT JOIN reaction_details d "
         "ON r.rid = d.rid "
         "WHERE r.rid = ANY($1)";
     this->conn->prepare("reaction_details", sql_reaction_details);
@@ -237,13 +248,17 @@ void chm::App::generate_compound_structure_svg(cid_t cid)
 
     RDDepict::compute2DCoords(*mol);
 
-    std::ostringstream svg;
     RDKit::MolDraw2DSVG drawer(300, 200);
     drawer.drawMolecule(*mol);
     drawer.finishDrawing();
-    svg << drawer.getDrawingText();
 
-    std::cout << svg.str() << std::endl;
+    std::ofstream svg_fout(svg_path);
+    if(!svg_fout.is_open())
+        throw std::runtime_error(fmt::format("Failed to open '{}' to save structure", svg_path.string()));
+
+    svg_fout << drawer.getDrawingText();
+
+    svg_fout.close();
 
     delete mol;
 }

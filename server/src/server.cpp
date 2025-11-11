@@ -158,52 +158,63 @@ void chm::Server::get_structure_request(const httplib::Request& req, httplib::Re
 
 void chm::Server::search_request(const httplib::Request& req, httplib::Response& res)
 {
-    std::string page_str = req.has_param("page") ? req.get_param_value("page") : "1";
+    std::string page_str = req.has_param("page") ? req.get_param_value("page") : "0";
     std::string sorting_order_str = req.has_param("sorting_order") ? req.get_param_value("sorting_order") : "none";
+    std::string sorting_direction = req.has_param("sorting_direction") ? req.get_param_value("sorting_direction") : "asc";
+    
     uint32_t page = str_to_numeric<uint32_t>(page_str);
-
-    if(page == 0)
-        throw std::invalid_argument("Page index must be >= 1");
-
-    uint32_t offset = (page - 1) * this->PAGE_SIZE;
-
+    
+    if(sorting_direction != "asc" && sorting_direction != "desc")
+        throw std::invalid_argument(fmt::format("Invalid value for 'sorting_direction' parameter: '{}'", sorting_direction));
+    
     if(this->sorting.find(sorting_order_str) == this->sorting.end())
         throw std::invalid_argument(fmt::format("Invalid sorting order '{}'", sorting_order_str));
     
+    uint32_t offset = page * this->PAGE_SIZE;
     const auto& [sorting_map, sorted_cids] = this->sorting[sorting_order_str];
-
-    std::vector<cid_t> query_result;
-    bool is_end;
+    
+    std::vector<cid_t> search_result;
+    const std::vector<cid_t>* source_vector;
+    uint32_t total_size;
+    
     if (req.has_param("q")) 
     {
         std::string query = req.get_param_value("q");
-        auto search_result = this->search_compounds(query, offset);
-        query_result = std::move(search_result.first);
-        is_end = search_result.second;
+        search_result = this->search_compounds(query);
         
         if(sorting_order_str != "none")
-            std::sort(query_result.begin(), query_result.end(),
+            std::sort(search_result.begin(), search_result.end(),
                 [&sorting_map](cid_t a, cid_t b) { return sorting_map.at(a) < sorting_map.at(b); });
+        
+        source_vector = &search_result;
+        total_size = search_result.size();
     }
     else
     {
-        uint32_t cids_size = sorted_cids.size();
-
-        if(offset >= cids_size)
-            throw std::invalid_argument(fmt::format("Invalid offset {} for results list with size {}", offset, cids_size));
-
-        uint32_t results_on_page = std::min(cids_size - offset, this->PAGE_SIZE);
-        query_result.resize(results_on_page);
-        std::copy(sorted_cids.begin() + offset,
-            sorted_cids.begin() + offset + results_on_page,
-            query_result.begin());
-        
-        is_end = (offset + results_on_page) == cids_size;
+        source_vector = &sorted_cids;
+        total_size = sorted_cids.size();
     }
 
+    if(offset >= total_size)
+        throw std::invalid_argument(fmt::format("Invalid offset {} for results list with size {}", offset, total_size));
+    
+    uint32_t results_on_page = std::min(total_size - offset, this->PAGE_SIZE);
+    bool is_end = (offset + results_on_page) == total_size;
+    
+    std::vector<cid_t> query_result;
+    query_result.reserve(results_on_page);
+    
+    if(sorting_direction == "asc")
+        std::copy(source_vector->begin() + offset,
+                 source_vector->begin() + offset + results_on_page,
+                 std::back_inserter(query_result));
+    else
+        std::copy(source_vector->rbegin() + offset,
+                 source_vector->rbegin() + offset + results_on_page,
+                 std::back_inserter(query_result));
+    
     res.set_content(nlohmann::json({{"cids", query_result}, {"is_end", is_end}}).dump(), "application/json");
 }
-
 
 void chm::Server::process_request(const std::function<void(const httplib::Request&,httplib::Response&)>& handler, const httplib::Request& req, httplib::Response& res)
 {
@@ -249,7 +260,7 @@ chm::Server::Server(const fs::path& data_dir, const std::string& listen_addr, ui
             );
         });
     
-    std::string svg_route = this->STRUCTURES_DIR_UI_PATH.string() + R"(\d+)\.svg)";
+    std::string svg_route = fmt::format("/{}/(-?\\d+)\\.svg", this->STRUCTURES_DIR_UI_PATH.string());
     svr.Get(svg_route,
         [&](const httplib::Request& req, httplib::Response& res)
         {
@@ -259,7 +270,7 @@ chm::Server::Server(const fs::path& data_dir, const std::string& listen_addr, ui
             );
         });
     
-    svr.Get("/search",
+    svr.Get("/api/search",
         [&](const httplib::Request &req, httplib::Response &res)
         {
             this->process_request(
@@ -268,7 +279,7 @@ chm::Server::Server(const fs::path& data_dir, const std::string& listen_addr, ui
             );
         });
     
-    svr.Get("/adjacent_edges",
+    svr.Get("/api/adjacent_edges",
         [&](const httplib::Request &req, httplib::Response &res)
         {
             this->process_request(
@@ -287,14 +298,24 @@ chm::Server::Server(const fs::path& data_dir, const std::string& listen_addr, ui
         else if (res.status >= 200) status_color = fmt::color::green;
         else status_color = fmt::color::white;
 
-        fmt::print(fg(fmt::color::white), "API Request: ");
-        fmt::print(fg(fmt::color::cyan) | fmt::emphasis::bold, "{} ", req.path);
-        fmt::print(fg(status_color) | fmt::emphasis::bold, "[{}]", res.status);
+        std::string log_msg;
 
-        if (res.status >= 400 && !res.body.empty())
-            fmt::print(fg(fmt::color::red) | fmt::emphasis::italic, " Body: {}", res.body);
+        log_msg += fmt::format("Request: ");
+        log_msg += fmt::format(fg(fmt::color::cyan) | fmt::emphasis::bold, "{} ", req.path);
+        log_msg += fmt::format(fg(fmt::color::white), "({}) ", req.method);
+        log_msg += fmt::format(fg(fmt::color::yellow), "from {} ", req.remote_addr);
+        log_msg += fmt::format(fg(status_color) | fmt::emphasis::bold, "[{}]", res.status);
 
-        fmt::print("\n");
+        if (auto it = req.headers.find("Content-Length"); it != req.headers.end()) {
+            log_msg += fmt::format(fg(fmt::color::gray), " len:{}", it->second);
+        }
+
+        if (res.status >= 400 && res.body.size() > 0 && res.body.size() < 1000)
+            log_msg += fmt::format(fg(fmt::color::red) | fmt::emphasis::italic, " Body: {}", res.body);
+
+        log_msg += "\n";
+
+        fmt::print("{}", log_msg);
     });
 }
 
@@ -302,6 +323,8 @@ chm::Server::Server(const fs::path& data_dir, const std::string& listen_addr, ui
 
 void chm::Server::listen()
 {
-    fmt::print("Server is listening on {}:{}\n", this->listen_addr, this->listen_port);
+    fmt::print(fg(fmt::color::green) | fmt::emphasis::bold, "🚀 Server is up at ");
+    fmt::print(fg(fmt::color::cyan) | fmt::emphasis::bold, "{}:{}", this->listen_addr, this->listen_port);
+    fmt::print("\n");
     this->svr.listen(this->listen_addr, this->listen_port);
 }

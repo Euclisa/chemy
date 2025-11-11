@@ -38,18 +38,17 @@
 })();
 
 (function(){
-    const submitButton = document.getElementById('submit-button');
+    const searchButton = document.getElementById('search-button');
     const searchInput = document.getElementById('search-input');
     const cancelCompute = document.getElementById('cancel-compute');
-    
-    let searchTimeout;
+    const submitButton = document.getElementById('submit-paths-button');
 
     function handleSearch() {
         const query = searchInput.value;
-        performSearch(query);
+        currentResults.setQuery(query);
     }
 
-    submitButton.addEventListener('click', handleSubmit);
+    searchButton.addEventListener('click', handleSearch);
 
     searchInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
@@ -57,14 +56,7 @@
         }
     });
 
-    searchInput.addEventListener('input', function() {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            handleSearch();
-        }, 300);
-    });
-
-    cancelCompute.addEventListener('click', hideLoading);
+    //cancelCompute.addEventListener('click', hideLoading);
 })();
 
 (function(){
@@ -87,32 +79,12 @@
 
     const sortBtn = document.getElementById('catalog-sort-btn');
     document.querySelectorAll('.filter-menu li').forEach(item => {
-    item.addEventListener('click', () => {
-        sortBtn.innerHTML = item.innerHTML;
-        const sortValue = item.dataset.sort;
-        
-        switch (sortValue) {
-            case 'common-asc':
-                setSortingOrder(commonnesSortedCids, false);
-                break;
-            case 'common-desc':
-                setSortingOrder(commonnesSortedCids, true);
-                break;
-            case 'complex-asc':
-                setSortingOrder(complexitySortedCids, false);
-                break;
-            case 'complex-desc':
-                setSortingOrder(complexitySortedCids, true);
-                break;
-            case 'curious-asc':
-                setSortingOrder(curiositySortedCids, false);
-                break;
-            case 'curious-desc':
-                setSortingOrder(curiositySortedCids, true);
-                break;
-        }
-        displayResults();
-    });
+        item.addEventListener('click', () => {
+            sortBtn.innerHTML = item.innerHTML;
+            const sortOrder = item.dataset.sortOrder;
+            const sortDirection = item.dataset.sortDirection;
+            currentResults.changeSortingOrder(sortOrder, sortDirection)
+        });
     });
 })();
 

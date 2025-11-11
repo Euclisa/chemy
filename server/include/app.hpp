@@ -12,6 +12,7 @@
 #include <fmt/color.h>
 #include <fmt/core.h>
 #include <nlohmann/json.hpp>
+#include <mutex>
 
 #include "fuzzy_map.hpp"
 #include "misc.hpp"
@@ -57,6 +58,7 @@ namespace chm
     
     private:
         pqxx::connection *conn{nullptr};
+        std::mutex conn_mutex;
 
         using fingerprints_t = std::unordered_map<cid_t, ecfp4_t>;
         fingerprints_t fingerprints;
@@ -118,7 +120,7 @@ namespace chm
 
         nlohmann::json build_graph(const std::vector<cid_t>& sources, const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths, bool primary_only);
 
-        std::pair<std::vector<cid_t>, bool> search_compounds(const std::string& query, uint32_t offset);
+        std::vector<cid_t> search_compounds(const std::string& query);
 
         void generate_compound_structure_svg(cid_t cid);
     };
@@ -127,16 +129,22 @@ namespace chm
     template<typename... Args>
     pqxx::result App::run_pqxx_request_params(const std::string& sql, Args&&... args)
     {
+        std::lock_guard<std::mutex> lock(this->conn_mutex);
         pqxx::work tx(*this->conn);
-        return tx.exec_params(sql, std::forward<Args>(args)...);
+        pqxx::result result = tx.exec_params(sql, std::forward<Args>(args)...);
+        tx.commit();
+        return result;
     }
 
 
     template<typename... Args>
     pqxx::result App::run_pqxx_request_params_prepared(const std::string& prepared, Args&&... args)
     {
+        std::lock_guard<std::mutex> lock(this->conn_mutex);
         pqxx::work tx(*this->conn);
-        return tx.exec_prepared(prepared, std::forward<Args>(args)...);
+        pqxx::result result = tx.exec_prepared(prepared, std::forward<Args>(args)...);;
+        tx.commit();
+        return result;
     }
 
 
@@ -165,8 +173,13 @@ namespace chm
         for(const auto& row : cmpd_rows)
         {
             cid_t cid = row[0].as<cid_t>();
-            std::string smiles = row[1].as<std::string>();
+            std::string name = row[1].as<std::string>();
+            std::string smiles = row[2].as<std::string>();
+            std::string wiki = row[3].is_null() ? "" : row[3].as<std::string>();
+            compound_infos[cid]["cid"] = cid;
+            compound_infos[cid]["name"] = name;
             compound_infos[cid]["smiles"] = smiles;
+            compound_infos[cid]["wiki"] = wiki;
         }
 
         pqxx::result prop_rows{this->run_pqxx_request_params_prepared("compound_properties", cids_str)};
@@ -182,7 +195,7 @@ namespace chm
         for(const auto& row : picts_rows)
         {
             cid_t cid = row[0].as<cid_t>();
-            compound_infos[cid]["hazard_pictograms"].push_back(row[1].as<std::string>());
+            compound_infos[cid]["pictograms"].push_back(row[1].as<std::string>());
         }
         
         pqxx::result nfpa_rows{this->run_pqxx_request_params_prepared("compound_nfpa", cids_str)};
@@ -196,6 +209,13 @@ namespace chm
                 compound_infos[cid]["nfpa"]["flammability"] = row[2].as<std::string>();
             if(!row[3].is_null())
                 compound_infos[cid]["nfpa"]["instability"] = row[3].as<std::string>();
+        }
+
+        pqxx::result descr_rows{this->run_pqxx_request_params_prepared("compound_descriptions", cids_str)};
+        for(const auto& row : descr_rows)
+        {
+            cid_t cid = row[0].as<cid_t>();
+            compound_infos[cid]["description"] = row[1].as<std::string>();
         }
 
         for(auto& [cid, info] : compound_infos)

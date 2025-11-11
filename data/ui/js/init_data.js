@@ -2,8 +2,6 @@ let chemsData = [];
 let edgesData = [];
 let reactionsData = [];
 let fuse = null;
-let currentResults = [];
-let currentPage = 0;
 const RESULTS_PER_PAGE = 200;
 let selectedCIDs = new Set();
 let cidToCompound = new Map();
@@ -15,8 +13,6 @@ let graph_reverse = new Map()
 let edgeToReactionID = new Map();
 let RIDToReaction = new Map();
 let currentEdges = new Set();
-let sourceNodes = new Set();
-let targetNodes = new Set();
 let secondaryNodes = new Set();
 let directedEdges = new Set();
 let backgroundCids;
@@ -29,6 +25,12 @@ let currentSortingOrder;
 let cidToEdges = new Map();
 let cidToCompoundProperties = new Map();
 let cidToHazards = new Map();
+
+let sortingOrder = "none";
+let currentPage = 0;
+let compounds = new Compounds();
+let currentResults = new ResultsList();
+let pathsList = new PathsList();
 
 async function loadData(fileName) {
     try {
@@ -57,93 +59,7 @@ async function initializeData() {
     originalMainContent = document.getElementById('main').innerHTML;
     
     try {
-        chemsData = await loadData('data/chems/chems.jsonl');
-        edgesData = await loadData('data/chems/chems_edges.jsonl');
-        reactionsData = await loadData('data/reactions_parsed/reactions_parsed.jsonl');
-        backgroundCids = await loadData('data/misc/background_cids.json');
-        backgroundCids = new Set(backgroundCids.map(Number));
-
-        commonnesSortedCids = await loadData('data/misc/chems_sortings/commonness_sorted_cids.jsonl');
-        commonnesSortedCids = commonnesSortedCids.map(Number);
-        complexitySortedCids = await loadData('data/misc/chems_sortings/complexity_sorted_cids.jsonl');
-        complexitySortedCids = complexitySortedCids.map(Number);
-        curiositySortedCids = await loadData('data/misc/chems_sortings/curiosity_sorted_cids.jsonl');
-        curiositySortedCids = curiositySortedCids.map(Number);
-
-        let compoundProperties = await loadData('data/chems_properties/chems_properties.jsonl');
-        
-        let chemsDescriptionsLoaded = await loadData('data/chems_properties/llm/chems_descriptions.jsonl');
-        chemsDescriptionsLoaded.forEach(entry => cidToDescription.set(entry.cid, entry.description));
-
-        let reactionsDescriptionsLoaded = await loadData('data/reactions_details/reactions_details.jsonl');
-        reactionsDescriptionsLoaded.forEach(entry => ridToDescription.set(entry.rid, entry.description));
-
-        let chemsHazardsLoaded = await loadData('data/chems_properties/hazards/chems_hazards.jsonl');
-        chemsHazardsLoaded.forEach(entry => {
-            nfpa = entry.nfpa ? entry.nfpa.value : null;
-            pictograms = entry.pictograms ? entry.pictograms.value : null;
-            if (pictograms && pictograms.length === 0)
-                throw 1;
-            cidToHazards.set(entry.cid, {nfpa, pictograms});
-        });
-        
-        if (chemsData.length === 0) {
-            resultsContainer.innerHTML = '<div class="no-results">No compound data available</div>';
-            hideLoading();
-            return;
-        }
-        
-        edgesData.forEach(entry => {
-            const edgeStr = `${entry.source}-${entry.target}`;
-            edgeToReactionID.set(edgeStr, entry.reactions);
-        });
-        
-        reactionsData.forEach(entry => {
-            const rid = entry.rid;
-            const copy = { ...entry };
-            delete copy.rid;
-            RIDToReaction.set(rid, copy);
-        });
-
-        chemsData.forEach(comp => {
-            cidToCompound.set(comp.cid, comp);
-        });
-
-        compoundProperties.forEach(entry => {
-            cidToCompoundProperties.set(entry.cid, entry.properties)
-        });
-
-        edgesData.forEach(edge => {
-            if (!graph.has(edge.source)) graph.set(edge.source, []);
-            graph.get(edge.source).push(edge.target);
-
-            if (!graph_reverse.has(edge.target)) graph_reverse.set(edge.target, []);
-            graph_reverse.get(edge.target).push(edge.source);
-        });
-
-        for (const cid of commonnesSortedCids) cidToEdges.set(cid, []);
-        edgesData.forEach(edge => {
-            cidToEdges.get(edge.source).push(edge);
-            cidToEdges.get(edge.target).push(edge);
-        });
-
-        const fuseOptions = {
-            keys: ['cmpdname', 'synonyms'],
-            threshold: 0.3,
-            includeScore: true,
-            minMatchCharLength: 2
-        };
-        
-        fuse = new Fuse(chemsData, fuseOptions);
-
-        currentResults = chemsData;
-        setSortingOrder(commonnesSortedCids, true);
-
-        displayResults(chemsData.slice(0, RESULTS_PER_PAGE));
-        
-        if (chemsData.length > RESULTS_PER_PAGE) {
-            addLoadMoreButton();
-        }
+        currentResults.setQuery();
         
     } catch (error) {
         console.error('Error initializing data:', error);
@@ -151,10 +67,10 @@ async function initializeData() {
     }
     hideLoading();
 
-    renderPathList();
+    pathsList.renderPathList();
 
-    document.getElementById('level1').addEventListener('click', () => selectLevel(1));
-    document.getElementById('level2').addEventListener('click', () => selectLevel(2));
+    document.getElementById('level1').addEventListener('click', () => pathsList.selectLevel(1));
+    document.getElementById('level2').addEventListener('click', () => pathsList.selectLevel(2));
 
     const kSlider = document.getElementById('k-slider');
     const kValue = document.getElementById('k-value');

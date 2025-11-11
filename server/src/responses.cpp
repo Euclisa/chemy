@@ -33,19 +33,11 @@ nlohmann::json chm::App::build_graph(const std::vector<cid_t>& sources, const st
 }
 
 
-std::pair<std::vector<chm::App::cid_t>, bool> chm::App::search_compounds(const std::string& query, uint32_t offset)
+std::vector<chm::App::cid_t> chm::App::search_compounds(const std::string& query)
 {
     auto results = this->fuzzy.search(query);
-    uint32_t results_size = results.size();
-    
-    if(results_size <= offset)
-        throw std::invalid_argument(fmt::format("Invalid offset {} for results list with size {}", offset, results_size));
+    std::vector<cid_t> result_cids(results.size());
+    std::transform(results.begin(), results.end(), result_cids.begin(), [](const std::pair<cid_t, double>& x) { return x.first; });
 
-    uint32_t results_on_page = std::min(results_size - offset, this->PAGE_SIZE);
-    std::vector<cid_t> result_cids(results_on_page);
-    std::transform(results.begin() + offset, results.begin() + offset + results_on_page, result_cids.begin(), [](const std::pair<cid_t, double>& x) { return x.first; });
-
-    bool is_end = results_size == (offset + results_on_page);
-
-    return std::make_pair(result_cids, is_end);
+    return result_cids;
 }

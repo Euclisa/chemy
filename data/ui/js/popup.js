@@ -20,18 +20,16 @@ function showPopup(type, data) {
 
     if (type === 'node') {
         const cid = data.id;
-        const compound = cidToCompound.get(cid);
-        const compoundProperties = cidToCompoundProperties.get(cid);
-        title.textContent = compound ? compound.cmpdname : 'Node Info';
+        const compound = compounds.get(cid);
+        title.textContent = compound ? compound.name : 'Node Info';
         
         let html = '<div class="compound-structure">';
-        html += `<img src="data/structures/${cid}.svg" alt="${compound.cmpdname}" onerror="this.style.display='none'">`;
+        html += `<img src="/assets/structures/${cid}.svg" alt="${compound.cmpdname}" onerror="this.style.display='none'">`;
         html += '</div>';
 
-        if (cidToHazards.has(cid)) {
-            const compoundHazards = cidToHazards.get(cid);
+        if (compound.nfpa || compound.pictograms) {
             html += '<div class="compound-hazards">'
-            if (compoundHazards.nfpa) {
+            if (compound.nfpa) {
 
                 let createNfpaDiamond = (health, flammability, instability) => {
                     return `
@@ -59,20 +57,20 @@ function showPopup(type, data) {
                 };
 
 
-                const nfpa = compoundHazards.nfpa;
-                const health = 'health' in nfpa ? nfpa.health.toString() : "";
-                const flammability = 'flammability' in nfpa ? nfpa.flammability.toString() : "";
-                const instability = 'instability' in nfpa ? nfpa.instability.toString() : "";
+                const nfpa = compound.nfpa;
+                const health = 'health' in nfpa ? nfpa.health : "";
+                const flammability = 'flammability' in nfpa ? nfpa.flammability : "";
+                const instability = 'instability' in nfpa ? nfpa.instability : "";
                 
                 html += createNfpaDiamond(health, flammability, instability);
             }
 
-            if (compoundHazards.pictograms) {
+            if (compound.pictograms) {
                 html += '<div class="ghs-pictograms">';
 
-                pictograms = compoundHazards.pictograms;
-                for (ghs of pictograms) {
-                    html += `<img src="data/assets/ghs_pictograms/${ghs}.svg">`
+                pictograms = compound.pictograms;
+                for (const ghs of pictograms) {
+                    html += `<img src="/assets/ghs_pictograms/${ghs}.svg">`
                 }
                 
                 html += '</div>';
@@ -82,9 +80,9 @@ function showPopup(type, data) {
         }
 
         html += '<div class="compound-info compound-info-general">';
-        for (const entry of compoundProperties) {
-            const label = entry.property;
-            const value = entry.value.split('\n').join('<br>');
+        for (const entry of compound.properties) {
+            const label = entry.property_name;
+            const value = entry.property_value.split('\n').join('<br>');
             html += '<div class="compound-info-row">';
             html += `<span class="compound-info-label table-info">${label}</span>`;
             html += '<span class="compound-info-value table-info">'
@@ -98,8 +96,8 @@ function showPopup(type, data) {
             html += '</div>';
         }
         html += '</div>';
-        
-        const description = cidToDescription.get(cid);
+        console.log(compound);
+        const description = compound.description;
         if (description) {
             html += '<div class="compound-info compound-info-description">';
             const description_html = '<p>' + description.split('\n\n').join('</p><p>') + '</p>';
@@ -250,6 +248,6 @@ function showPopup(type, data) {
 
 
 function showCompoundInfoPopup(cid) {
-    const name = cidToCompound.get(cid).cmpdname;
+    const name = compounds.get(cid).name;
     showPopup('node', {id: cid, name: name});
 }

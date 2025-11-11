@@ -40,7 +40,7 @@ function removeNode(cid, force = true) {
 
 
 function loadStructureSVG(cid, container) {
-    const svgPath = `data/structures/${cid}.svg`;
+    const svgPath = `assets/structures/${cid}.svg`;
     
     fetch(svgPath)
         .then(response => {

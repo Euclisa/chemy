@@ -1,60 +1,39 @@
-.search-bar {
+.sliders-submit-container {
     display: flex;
+    gap: 2rem;
     align-items: stretch;
-    background: white;
-    border: 2px solid var(--border);
-    border-radius: 0.75rem;
-    overflow: hidden;
-    min-height: 3rem;
-    flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(184, 168, 217, 0.1);
-    transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.search-bar:focus-within {
-    border-color: var(--primary);
-    box-shadow: 0 4px 12px rgba(184, 168, 217, 0.2);
-}
-
-.search-bar button {
-    display: inline-flex;
+.submit-paths-btn {
+    aspect-ratio: 1/1;
+    min-width: 3rem;
     align-items: center;
     justify-content: center;
     padding: 0.75rem;
     border: none;
-    background: var(--primary);
-    cursor: pointer;
+    background: rgb(119, 214, 127);
     font-size: 0.9rem;
     min-width: 3rem;
     flex-shrink: 0;
     transition: background-color 0.2s;
     color: white;
+    border-radius: 0.75rem;
 }
 
-.search-bar button:hover {
-    background: var(--primary-hover);
+.submit-paths-btn:hover {
+    background: rgb(90, 207, 100);
 }
 
-.search-bar input {
-    flex: 1;
-    border: none;
-    padding: 0.75rem 1rem;
-    outline: none;
-    font-size: 0.9rem;
-    min-width: 0;
-    background: transparent;
-    color: var(--text-primary);
-}
-
-.search-bar input::placeholder {
-    color: var(--text-secondary);
-    opacity: 0.6;
+.sliders-container {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    justify-content: space-evenly;
 }
 
 .slider-container {
     display: flex;
     align-items: center;
-    margin-top: 0.75rem;
     font-size: 0.85rem;
     color: var(--text-secondary);
 }
@@ -96,7 +75,7 @@
 }
 
 .slider-container span {
-    min-width: 2rem;
+    min-width: 1rem;
     text-align: right;
     font-weight: 600;
     color: var(--primary);
