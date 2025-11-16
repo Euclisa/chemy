@@ -8,7 +8,6 @@ let cidToCompound = new Map();
 let originalMainContent = '';
 let hoverTimeout;
 let selectedLevel = 1;
-let graph = new Map();
 let graph_reverse = new Map()
 let edgeToReactionID = new Map();
 let RIDToReaction = new Map();
@@ -29,8 +28,8 @@ let cidToHazards = new Map();
 let sortingOrder = "none";
 let currentPage = 0;
 let compounds = new Compounds();
-let currentResults = new ResultsList();
-let pathsList = new PathsList();
+let catalog = new Catalog(compounds);
+let graph = new Graph(catalog);
 
 async function loadData(fileName) {
     try {
@@ -59,7 +58,7 @@ async function initializeData() {
     originalMainContent = document.getElementById('main').innerHTML;
     
     try {
-        currentResults.setQuery();
+        catalog.setQuery();
         
     } catch (error) {
         console.error('Error initializing data:', error);
@@ -67,20 +66,30 @@ async function initializeData() {
     }
     hideLoading();
 
-    pathsList.renderPathList();
+    catalog.renderPathList();
 
-    document.getElementById('level1').addEventListener('click', () => pathsList.selectLevel(1));
-    document.getElementById('level2').addEventListener('click', () => pathsList.selectLevel(2));
+    document.getElementById('level1').addEventListener('click', () => catalog.selectLevel(1));
+    document.getElementById('level2').addEventListener('click', () => catalog.selectLevel(2));
 
     const kSlider = document.getElementById('k-slider');
     const kValue = document.getElementById('k-value');
-    kSlider.addEventListener('input', () => {
+
+    const updateMaxPaths = () => {
         kValue.textContent = kSlider.value === '11' ? 'All' : kSlider.value;
-    });
+        graph.max_paths = kValue.textContent === 'All' ? 99999 : Number(kValue.textContent)
+    };
+
+    updateMaxPaths();
+    kSlider.addEventListener('input', updateMaxPaths);
 
     const nSlider = document.getElementById('n-slider');
     const nValue = document.getElementById('n-value');
-    nSlider.addEventListener('input', () => {
+
+    const updateMaxCost = () => {
         nValue.textContent = nSlider.value;
-    });
+        graph.max_cost = Number(nSlider.value);
+    };
+    
+    updateMaxCost();
+    nSlider.addEventListener('input', updateMaxCost);
 }

@@ -55,4 +55,8 @@ class Compounds {
 
         return this.compoundsMap.get(cid);
     }
+
+    getSvgPath(cid) {
+        return `/assets/structures/${cid}.svg`;
+    }
 }

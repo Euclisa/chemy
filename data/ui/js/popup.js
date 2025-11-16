@@ -19,12 +19,13 @@ function showPopup(type, data) {
     const content = popup.querySelector('#popup-content');
 
     if (type === 'node') {
-        const cid = data.id;
+        console.log(data);
+        const cid = data.cid;
         const compound = compounds.get(cid);
         title.textContent = compound ? compound.name : 'Node Info';
         
         let html = '<div class="compound-structure">';
-        html += `<img src="/assets/structures/${cid}.svg" alt="${compound.cmpdname}" onerror="this.style.display='none'">`;
+        html += `<img src="${compounds.getSvgPath(cid)}" alt="${compound.cmpdname}" onerror="this.style.display='none'">`;
         html += '</div>';
 
         if (compound.nfpa || compound.pictograms) {
@@ -250,4 +251,29 @@ function showPopup(type, data) {
 function showCompoundInfoPopup(cid) {
     const name = compounds.get(cid).name;
     showPopup('node', {id: cid, name: name});
+}
+
+
+function makeDraggable(element) {
+    const header = element.querySelector('.popup-header');
+    header.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        let shiftX = e.clientX - element.getBoundingClientRect().left;
+        let shiftY = e.clientY - element.getBoundingClientRect().top;
+
+        function moveAt(pageX, pageY) {
+            element.style.left = pageX - shiftX + 'px';
+            element.style.top = pageY - shiftY + 'px';
+        }
+
+        function onMouseMove(e) {
+            moveAt(e.pageX, e.pageY);
+        }
+
+        document.addEventListener('mousemove', onMouseMove);
+
+        document.addEventListener('mouseup', function() {
+            document.removeEventListener('mousemove', onMouseMove);
+        }, {once: true});
+    });
 }

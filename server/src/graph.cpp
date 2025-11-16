@@ -258,7 +258,7 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_targets_only(cons
 nlohmann::json chm::App::convert_paths_to_graph(const std::vector<std::vector<cid_t>>& paths, bool primary_only)
 {
     graph_t paths_graph;
-    std::unordered_set<cid_t> secondary_cids;
+    std::unordered_set<cid_t> secondary_cids, all_cids;
     for(const auto& path : paths)
     {
         for(size_t i = 0; i < path.size()-1; ++i)
@@ -275,6 +275,8 @@ nlohmann::json chm::App::convert_paths_to_graph(const std::vector<std::vector<ci
                 throw std::invalid_argument("Invalid path: missing target compound");
 
             paths_graph[src][tgt] = tgt_it->second;
+
+            all_cids.insert({src, tgt});
         }
     }
     
@@ -295,6 +297,7 @@ nlohmann::json chm::App::convert_paths_to_graph(const std::vector<std::vector<ci
                             continue;
                         secondary_graph[src_cid][target].push_back(rid);
                         secondary_cids.insert(src_cid);
+                        all_cids.insert(src_cid);
                     }
                 }
             }
@@ -303,7 +306,7 @@ nlohmann::json chm::App::convert_paths_to_graph(const std::vector<std::vector<ci
     }
 
     nlohmann::json graph_json;
-    for(const auto& [source, target_entries] : paths_graph)
+    for(cid_t source : all_cids)
     {
         nlohmann::json source_entry = {
             {"cid", source},
@@ -311,10 +314,14 @@ nlohmann::json chm::App::convert_paths_to_graph(const std::vector<std::vector<ci
             {"targets", nlohmann::json::array()}
         };
 
-        for(const auto& [target, reactions] : target_entries)
-            source_entry["targets"].emplace_back(
-                nlohmann::json{{"cid", target}, {"reactions", reactions}}
-            );
+        auto targets_it = paths_graph.find(source);
+        if(targets_it != paths_graph.end())
+        {
+            for(const auto& [target, reactions] : targets_it->second)
+                source_entry["targets"].emplace_back(
+                    nlohmann::json{{"cid", target}, {"reactions", reactions}}
+                );
+        }
 
         graph_json.push_back(source_entry);
     }

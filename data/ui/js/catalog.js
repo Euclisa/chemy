@@ -1,13 +1,13 @@
-class ResultsList extends ItemsList {
-    constructor() {
-        super();
+class Catalog extends PathsList {
+    constructor(compounds) {
+        super(compounds);
         this.results = [];
         this.isEnd = false;
         this.query = null;
         this.sortingOrder = "none";
         this.sortingDirection = "asc"
         this.currentPage = 0;
-        this.apiEndpoint = "/api/search";
+        this.searchApiEndpoint = "/api/search";
         this.loaded = null;
 
         this.loadingHtml = document.getElementById('results-container').innerHTML;
@@ -54,7 +54,7 @@ class ResultsList extends ItemsList {
     async #loadMore() {
         if (this.isEnd) return;
 
-        const url = new URL(this.apiEndpoint, window.location.origin);
+        const url = new URL(this.searchApiEndpoint, window.location.origin);
         const params = url.searchParams;
 
         params.append("sorting_order", this.sortingOrder);
@@ -74,7 +74,7 @@ class ResultsList extends ItemsList {
             this.isEnd = data.is_end;
             this.currentPage += 1;
 
-            return compounds.loadCompounds(data.cids);
+            return this.compounds.loadCompounds(data.cids);
 
         } catch (error) {
             console.error('Error loading results:', error);
@@ -83,7 +83,7 @@ class ResultsList extends ItemsList {
     }
 
     #createResultItem(cid) {
-        const compound = compounds.get(cid);
+        const compound = this.compounds.get(cid);
         const item = document.createElement('div');
         item.className = 'result-item';
         
@@ -119,7 +119,7 @@ class ResultsList extends ItemsList {
         const itemInfo = this.createItemInfo(compound);
 
         const addItemToPathList = () => {
-            pathsList.addCidAndRenderLists(compound.cid);
+            this.addCidAndRenderLists(compound.cid);
         };
 
         const addBtn = document.createElement('button');

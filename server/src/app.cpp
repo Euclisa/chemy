@@ -89,7 +89,7 @@ void chm::App::setup_sql()
     this->conn->prepare("compound_fingerprints", sql_fp);
 
     std::string sql_compounds =
-        "SELECT c.cid, c.name, c.smiles, w.wiki "
+        "SELECT c.cid, c.name, c.smiles, c.organic, w.wiki "
         "FROM compounds c "
         "LEFT JOIN compound_wiki w "
         "ON c.cid = w.cid "

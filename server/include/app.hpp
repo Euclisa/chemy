@@ -173,13 +173,11 @@ namespace chm
         for(const auto& row : cmpd_rows)
         {
             cid_t cid = row[0].as<cid_t>();
-            std::string name = row[1].as<std::string>();
-            std::string smiles = row[2].as<std::string>();
-            std::string wiki = row[3].is_null() ? "" : row[3].as<std::string>();
             compound_infos[cid]["cid"] = cid;
-            compound_infos[cid]["name"] = name;
-            compound_infos[cid]["smiles"] = smiles;
-            compound_infos[cid]["wiki"] = wiki;
+            compound_infos[cid]["name"] = row[1].as<std::string>();
+            compound_infos[cid]["smiles"] = row[2].as<std::string>();
+            compound_infos[cid]["organic"] = row[3].as<bool>();
+            compound_infos[cid]["wiki"] = row[4].is_null() ? "" : row[4].as<std::string>();
         }
 
         pqxx::result prop_rows{this->run_pqxx_request_params_prepared("compound_properties", cids_str)};

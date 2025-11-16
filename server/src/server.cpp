@@ -82,17 +82,17 @@ void chm::Server::build_graph_request(const httplib::Request& req, httplib::Resp
         throw std::invalid_argument("'max_paths' field must be provided");
 
 
-    uint16_t max_len;
-    if (j.contains("max_len")) 
+    uint16_t max_cost;
+    if (j.contains("max_cost")) 
     {
-        if (!j["max_len"].is_number_integer())
-            throw std::runtime_error("'max_len' must be an integer");
-        max_len = static_cast<uint16_t>(j["max_len"].get<int>());
+        if (!j["max_cost"].is_number_integer())
+            throw std::runtime_error("'max_cost' must be an integer");
+        max_cost = static_cast<uint16_t>(j["max_cost"].get<int>());
     }
     else
-        throw std::invalid_argument("'max_len' field must be provided");
+        throw std::invalid_argument("'max_cost' field must be provided");
 
-    res.set_content(this->build_graph(targets, sources, primary_only, max_paths, max_len).dump(), "application/json");
+    res.set_content(this->build_graph(targets, sources, max_cost, max_paths, primary_only).dump(), "application/json");
 }
 
 

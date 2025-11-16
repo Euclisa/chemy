@@ -45,10 +45,12 @@
 
     function handleSearch() {
         const query = searchInput.value;
-        currentResults.setQuery(query);
+        catalog.setQuery(query);
     }
 
     searchButton.addEventListener('click', handleSearch);
+
+    submitButton.addEventListener('click', graph.submit.bind(graph));
 
     searchInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
@@ -83,7 +85,7 @@
             sortBtn.innerHTML = item.innerHTML;
             const sortOrder = item.dataset.sortOrder;
             const sortDirection = item.dataset.sortDirection;
-            currentResults.changeSortingOrder(sortOrder, sortDirection)
+            catalog.changeSortingOrder(sortOrder, sortDirection)
         });
     });
 })();

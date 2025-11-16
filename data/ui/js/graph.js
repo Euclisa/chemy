@@ -180,20 +180,24 @@ function getProcessedLinks() {
 
 
 class Graph {
-    constructor(max_paths, max_len) {
-        this.max_paths = max_paths;
-        this.max_len = max_len;
+    constructor(catalog) {
+        this.catalog = catalog
+        this.max_paths = null;
+        this.max_cost = null;
         this.primary_only = false;
+        this.api = null;
+        this.edgeToRids = new Map();
     }
 
     async submit() {
-        const sources = Array.from(sourceNodes);
-        const targets = Array.from(targetNodes);
+        const sources = Array.from(this.catalog.sourceCids);
+        const targets = Array.from(this.catalog.targetCids);
 
         const post_body = {
             "sources": sources,
             "targets": targets,
             "max_paths": this.max_paths,
+            "max_cost": this.max_cost,
             "primary_only": this.primary_only
         };
 
@@ -209,9 +213,287 @@ class Graph {
 
         const data = await response.json();
 
-        
+        let allCids = new Set();
+        let nodes = [];
+        let links = [];
+        const targetMap = new Map();
 
+        console.log(data);
+        const graph = data["graph"];
+
+        graph.forEach(d => {
+            const cid = d.cid;
+            nodes.push({
+                cid,
+                primary: d.primary
+            });
+            targetMap.set(cid, new Set(d.targets));
+        });
+
+        graph.forEach(d => {
+            const sourceCid = d.cid;
+            d.targets.forEach(target => {
+                const targetCid = target.cid;
+                const edge = [sourceCid, targetCid].sort().join('|');
+                if (!this.edgeToRids.has(edge)) {
+                    const isBi = targetMap.get(targetCid)?.has(sourceCid);
+                    links.push({ source: sourceCid, target: targetCid, type: isBi ? "bi" : "directed", primary: d.primary});
+                    this.edgeToRids.set(edge, new Set(target.reactions));
+                    allCids.add(targetCid);
+                }
+                else {
+                    const rids = this.edgeToRids.get(edge);
+                    for (const r of target.reactions)
+                        rids.add(r);
+                }
+            });
+            allCids.add(sourceCid);
+            console.log(JSON.stringify(links));
+        });
+
+        if(!await this.catalog.compounds.loadCompounds(Array.from(allCids)))
+            throw new Error("Failed to load compounds needed for graph constructions");
+
+        nodes.forEach(node => {
+            const cid = node.cid;
+            const comp = this.catalog.compounds.get(cid);
+
+            const maxNameLen = 50;
+            const fullName = comp ? comp.name : 'Unknown';
+            node.name = fullName.length > maxNameLen
+                ? fullName.slice(0, maxNameLen) + '...'
+                : fullName;
+
+            node.organic = comp ? comp.organic : false;
+        });
+
+        if(this.api != null) {
+            this.api.destroy();
+            this.api = null;
+        }
+        this.api = this.#renderGraphWebGL(nodes, links);
     }
+
+    #renderGraphWebGL(nodes, links) {
+        const main = d3.select("#main");
+        main.html("");
+
+        const width = main.node().clientWidth;
+        const height = main.node().clientHeight;
+
+        const svg = main.append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .attr("viewBox", [0, 0, width, height])
+            .style("max-width", "100%")
+            .style("height", "auto");
+
+        const defs = svg.append("defs");
+
+        defs.append("marker")
+            .attr("id", "arrow")
+            .attr("viewBox", "0 -3 10 6")
+            .attr("refX", "10")
+            .attr("refY", "0")
+            .attr("markerWidth", "6")
+            .attr("markerHeight", "6")
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-3L10,0L0,3")
+            .attr("fill", "#b8a8d9");
+
+        defs.append("marker")
+            .attr("id", "arrow-start")
+            .attr("viewBox", "0 -3 10 6")
+            .attr("refX", "10")
+            .attr("refY", "0")
+            .attr("markerWidth", "6")
+            .attr("markerHeight", "6")
+            .attr("orient", "auto-start-reverse")
+            .append("path")
+            .attr("d", "M0,-3L10,0L0,3")
+            .attr("fill", "#b8a8d9");
+
+        const g = svg.append("g");
+
+        const simulation = d3.forceSimulation(nodes)
+            .force("link", d3.forceLink(links).id(d => d.cid).distance(100))
+            .force("charge", d3.forceManyBody().strength(-200))
+            .force("center", d3.forceCenter(width / 2, height / 2));
+
+        const link = g.append("g")
+            .attr("stroke", "#b8a8d9")
+            .selectAll("line")
+            .data(links)
+            .join("line")
+            .attr("stroke-width", 2)
+            .attr("marker-end", d => "url(#arrow)")
+            .attr("marker-start", d => d.type === 'bi' ? "url(#arrow-start)" : null)
+            .attr("stroke-opacity", d => d.primary ? 0.7 : 0.3)
+            .style("cursor", "pointer")
+            .on("mouseover", function(event, d) {
+                d3.select(this).attr("stroke-width", 4).attr("stroke", "#9d89c7");
+            })
+            .on("mouseout", function(event, d) {
+                d3.select(this).attr("stroke-width", 2).attr("stroke", "#b8a8d9");
+            })
+            .on("click", function(event, d) {
+                showPopup('edge', d);
+            });
+        
+        const secondaryOpacity = 0.3;
+        const defaultOpacity = 1.0;
+
+        const nodeGroups = g.append("g")
+            .selectAll("g")
+            .data(nodes)
+            .join("g")
+            .attr("opacity", d => d.primary ? defaultOpacity : secondaryOpacity )
+            .style("cursor", "pointer")
+            .call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended)
+            )
+            .on("mouseover", function(event, d) {
+                d3
+                .select(this)
+                .attr('opacity', defaultOpacity)
+                .select("circle, rect, polygon")
+                .attr("r", 8).attr("width", 16)
+                .attr("height", 16)
+                .attr("points", "0,-8 8,8 -8,8");
+                hoverTimeout = setTimeout(() => {
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9);
+                    tooltip.html(`<img src="${compounds.getSvgPath(d.cid)}" alt="${d.name}"><div class="tooltip-name">${d.name}</div>`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                }, 500);
+            })
+            .on("mousemove", function(event, d) {
+                tooltip.style("left", (event.pageX + 10) + "px")
+                    .style("top", (event.pageY - 28) + "px");
+            })
+            .on("mouseout", function(event, d) {
+                d3
+                .select(this)
+                .attr('opacity', d => d.primary ? defaultOpacity : secondaryOpacity)
+                .select("circle, rect, polygon")
+                .attr("r", 5)
+                .attr("width", 10)
+                .attr("height", 10)
+                .attr("points", "0,-5 5,5 -5,5");
+                clearTimeout(hoverTimeout);
+                tooltip.transition()
+                    .duration(500)
+                    .style("opacity", 0);
+            })
+            .on("click", function(event, d) {
+                showPopup('node', d);
+            });
+        
+        const catalog = this.catalog;
+
+        nodeGroups.each(function(d) {
+            const sel = d3.select(this);
+            const color = d.organic ? "#7bc67b" : "#6ba3d6";
+            if (catalog.sourceCids.has(d.cid)) {
+                sel.append("rect")
+                    .attr("x", -5)
+                    .attr("y", -5)
+                    .attr("width", 10)
+                    .attr("height", 10)
+                    .attr("fill", color);
+            } else if (catalog.targetCids.has(d.cid)) {
+                sel.append("polygon")
+                    .attr("points", "0,-5 5,5 -5,5")
+                    .attr("fill", color);
+            } else {
+                sel.append("circle")
+                    .attr("r", 5)
+                    .attr("fill", color);
+            }
+        });
+
+        const labels = nodeGroups.append("text")
+            .text(d => d.name)
+            .attr("font-size", 10)
+            .attr("text-anchor", "middle")
+            .attr("dy", 20)
+            .attr("fill", "#4a4a6a")
+            .attr("font-weight", 500);
+
+        const tooltip = d3.select("body").append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+
+        simulation.on("tick", () => {
+            link
+                .attr("x1", d => {
+                    const dx = d.target.x - d.source.x;
+                    const dy = d.target.y - d.source.y;
+                    const dr = Math.sqrt(dx * dx + dy * dy);
+                    const normX = dx / dr;
+                    const sourcePadding = d.type === 'bi' ? 8 : 0;
+                    return d.source.x + (normX * sourcePadding);
+                })
+                .attr("y1", d => {
+                    const dx = d.target.x - d.source.x;
+                    const dy = d.target.y - d.source.y;
+                    const dr = Math.sqrt(dx * dx + dy * dy);
+                    const normY = dy / dr;
+                    const sourcePadding = d.type === 'bi' ? 8 : 0;
+                    return d.source.y + (normY * sourcePadding);
+                })
+                .attr("x2", d => {
+                    const dx = d.target.x - d.source.x;
+                    const dy = d.target.y - d.source.y;
+                    const dr = Math.sqrt(dx * dx + dy * dy);
+                    const normX = dx / dr;
+                    const targetPadding = (d.type === 'directed' || d.type === 'bi') ? 8 : 0;
+                    return d.target.x - (normX * targetPadding);
+                })
+                .attr("y2", d => {
+                    const dx = d.target.x - d.source.x;
+                    const dy = d.target.y - d.source.y;
+                    const dr = Math.sqrt(dx * dx + dy * dy);
+                    const normY = dy / dr;
+                    const targetPadding = (d.type === 'directed' || d.type === 'bi') ? 8 : 0;
+                    return d.target.y - (normY * targetPadding);
+                });
+
+            nodeGroups
+                .attr("transform", d => `translate(${d.x}, ${d.y})`);
+        });
+
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        const zoom = d3.zoom()
+            .scaleExtent([0.5, 4])
+            .on("zoom", ({transform}) => {
+                g.attr("transform", transform);
+            });
+
+        svg.call(zoom);
+    }
+
 }
 
 function handleSubmit() {
@@ -266,6 +548,9 @@ function handleSubmit() {
         updateGraph();
         hideLoading();
     }, 0);
+
+
+    
 }
 
 function updateGraph(cid = null) {
@@ -299,248 +584,5 @@ function updateGraph(cid = null) {
     const links = getProcessedLinks();
 
     refreshResults();
-    renderGraph(nodes, links);
-}
-
-function renderGraph(nodes, links) {
-    const main = d3.select("#main");
-    main.html("");
-
-    const width = main.node().clientWidth;
-    const height = main.node().clientHeight;
-
-    const svg = main.append("svg")
-        .attr("width", width)
-        .attr("height", height)
-        .attr("viewBox", [0, 0, width, height])
-        .style("max-width", "100%")
-        .style("height", "auto");
-
-    const defs = svg.append("defs");
-
-    defs.append("marker")
-        .attr("id", "arrow")
-        .attr("viewBox", "0 -3 10 6")
-        .attr("refX", "10")
-        .attr("refY", "0")
-        .attr("markerWidth", "6")
-        .attr("markerHeight", "6")
-        .attr("orient", "auto")
-        .append("path")
-        .attr("d", "M0,-3L10,0L0,3")
-        .attr("fill", "#b8a8d9");
-
-    defs.append("marker")
-        .attr("id", "arrow-start")
-        .attr("viewBox", "0 -3 10 6")
-        .attr("refX", "10")
-        .attr("refY", "0")
-        .attr("markerWidth", "6")
-        .attr("markerHeight", "6")
-        .attr("orient", "auto-start-reverse")
-        .append("path")
-        .attr("d", "M0,-3L10,0L0,3")
-        .attr("fill", "#b8a8d9");
-
-    const g = svg.append("g");
-
-    const simulation = d3.forceSimulation(nodes)
-        .force("link", d3.forceLink(links).id(d => d.id).distance(100))
-        .force("charge", d3.forceManyBody().strength(-200))
-        .force("center", d3.forceCenter(width / 2, height / 2));
-
-    const link = g.append("g")
-        .attr("stroke", "#b8a8d9")
-        .selectAll("line")
-        .data(links)
-        .join("line")
-        .attr("stroke-width", 2)
-        .attr("marker-end", d => "url(#arrow)")
-        .attr("marker-start", d => d.type === 'bi' ? "url(#arrow-start)" : null)
-        .attr("stroke-opacity", d => d.secondary ? 0.3 : 0.7)
-        .style("cursor", "pointer")
-        .on("mouseover", function(event, d) {
-            d3.select(this).attr("stroke-width", 4).attr("stroke", "#9d89c7");
-        })
-        .on("mouseout", function(event, d) {
-            d3.select(this).attr("stroke-width", 2).attr("stroke", "#b8a8d9");
-        })
-        .on("click", function(event, d) {
-            showPopup('edge', d);
-        });
-    
-    const secondaryOpacity = 0.3;
-    const defaultOpacity = 1.0;
-
-    const nodeGroups = g.append("g")
-        .selectAll("g")
-        .data(nodes)
-        .join("g")
-        .attr("opacity", d => secondaryNodes.has(d.id) ? secondaryOpacity : defaultOpacity)
-        .style("cursor", "pointer")
-        .call(d3.drag()
-            .on("start", dragstarted)
-            .on("drag", dragged)
-            .on("end", dragended)
-        )
-        .on("mouseover", function(event, d) {
-            d3
-            .select(this)
-            .attr('opacity', defaultOpacity)
-            .select("circle, rect, polygon")
-            .attr("r", 8).attr("width", 16)
-            .attr("height", 16)
-            .attr("points", "0,-8 8,8 -8,8");
-            hoverTimeout = setTimeout(() => {
-                tooltip.transition()
-                    .duration(200)
-                    .style("opacity", .9);
-                tooltip.html(`<img src="data/structures/${d.id}.svg" alt="${d.name}"><div class="tooltip-name">${d.name}</div>`)
-                    .style("left", (event.pageX + 10) + "px")
-                    .style("top", (event.pageY - 28) + "px");
-            }, 500);
-        })
-        .on("mousemove", function(event, d) {
-            tooltip.style("left", (event.pageX + 10) + "px")
-                .style("top", (event.pageY - 28) + "px");
-        })
-        .on("mouseout", function(event, d) {
-            d3
-            .select(this)
-            .attr('opacity', d => secondaryNodes.has(d.id) ? secondaryOpacity : defaultOpacity)
-            .select("circle, rect, polygon")
-            .attr("r", 5)
-            .attr("width", 10)
-            .attr("height", 10)
-            .attr("points", "0,-5 5,5 -5,5");
-            clearTimeout(hoverTimeout);
-            tooltip.transition()
-                .duration(500)
-                .style("opacity", 0);
-        })
-        .on("click", function(event, d) {
-            showPopup('node', d);
-        });
-
-    nodeGroups.each(function(d) {
-        const sel = d3.select(this);
-        const color = d.organic ? "#7bc67b" : "#6ba3d6";
-        if (sourceNodes.has(d.id)) {
-            sel.append("rect")
-                .attr("x", -5)
-                .attr("y", -5)
-                .attr("width", 10)
-                .attr("height", 10)
-                .attr("fill", color);
-        } else if (targetNodes.has(d.id)) {
-            sel.append("polygon")
-                .attr("points", "0,-5 5,5 -5,5")
-                .attr("fill", color);
-        } else {
-            sel.append("circle")
-                .attr("r", 5)
-                .attr("fill", color);
-        }
-    });
-
-    const labels = nodeGroups.append("text")
-        .text(d => d.name)
-        .attr("font-size", 10)
-        .attr("text-anchor", "middle")
-        .attr("dy", 20)
-        .attr("fill", "#4a4a6a")
-        .attr("font-weight", 500);
-
-    const tooltip = d3.select("body").append("div")
-        .attr("class", "tooltip")
-        .style("opacity", 0);
-
-    simulation.on("tick", () => {
-        link
-            .attr("x1", d => {
-                const dx = d.target.x - d.source.x;
-                const dy = d.target.y - d.source.y;
-                const dr = Math.sqrt(dx * dx + dy * dy);
-                const normX = dx / dr;
-                const sourcePadding = d.type === 'bi' ? 8 : 0;
-                return d.source.x + (normX * sourcePadding);
-            })
-            .attr("y1", d => {
-                const dx = d.target.x - d.source.x;
-                const dy = d.target.y - d.source.y;
-                const dr = Math.sqrt(dx * dx + dy * dy);
-                const normY = dy / dr;
-                const sourcePadding = d.type === 'bi' ? 8 : 0;
-                return d.source.y + (normY * sourcePadding);
-            })
-            .attr("x2", d => {
-                const dx = d.target.x - d.source.x;
-                const dy = d.target.y - d.source.y;
-                const dr = Math.sqrt(dx * dx + dy * dy);
-                const normX = dx / dr;
-                const targetPadding = (d.type === 'directed' || d.type === 'bi') ? 8 : 0;
-                return d.target.x - (normX * targetPadding);
-            })
-            .attr("y2", d => {
-                const dx = d.target.x - d.source.x;
-                const dy = d.target.y - d.source.y;
-                const dr = Math.sqrt(dx * dx + dy * dy);
-                const normY = dy / dr;
-                const targetPadding = (d.type === 'directed' || d.type === 'bi') ? 8 : 0;
-                return d.target.y - (normY * targetPadding);
-            });
-
-        nodeGroups
-            .attr("transform", d => `translate(${d.x}, ${d.y})`);
-    });
-
-    function dragstarted(event, d) {
-        if (!event.active) simulation.alphaTarget(0.3).restart();
-        d.fx = d.x;
-        d.fy = d.y;
-    }
-
-    function dragged(event, d) {
-        d.fx = event.x;
-        d.fy = event.y;
-    }
-
-    function dragended(event, d) {
-        if (!event.active) simulation.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
-    }
-
-    const zoom = d3.zoom()
-        .scaleExtent([0.5, 4])
-        .on("zoom", ({transform}) => {
-            g.attr("transform", transform);
-        });
-
-    svg.call(zoom);
-}
-
-
-function makeDraggable(element) {
-    const header = element.querySelector('.popup-header');
-    header.addEventListener('mousedown', function(e) {
-        e.preventDefault();
-        let shiftX = e.clientX - element.getBoundingClientRect().left;
-        let shiftY = e.clientY - element.getBoundingClientRect().top;
-
-        function moveAt(pageX, pageY) {
-            element.style.left = pageX - shiftX + 'px';
-            element.style.top = pageY - shiftY + 'px';
-        }
-
-        function onMouseMove(e) {
-            moveAt(e.pageX, e.pageY);
-        }
-
-        document.addEventListener('mousemove', onMouseMove);
-
-        document.addEventListener('mouseup', function() {
-            document.removeEventListener('mousemove', onMouseMove);
-        }, {once: true});
-    });
+    const api = renderGraph(nodes, links);
 }
