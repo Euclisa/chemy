@@ -92,7 +92,7 @@ void chm::Server::build_graph_request(const httplib::Request& req, httplib::Resp
     else
         throw std::invalid_argument("'max_cost' field must be provided");
 
-    res.set_content(this->build_graph(targets, sources, max_cost, max_paths, primary_only).dump(), "application/json");
+    res.set_content(this->build_graph(sources, targets, max_cost, max_paths, primary_only).dump(), "application/json");
 }
 
 
@@ -229,7 +229,7 @@ void chm::Server::process_request(const std::function<void(const httplib::Reques
 }
 
 
-chm::Server::Server(const fs::path& data_dir, const std::string& listen_addr, uint16_t listen_port) : App(data_dir), listen_addr(listen_addr), listen_port(listen_port)
+chm::Server::Server(const fs::path& data_dir) : App(data_dir)
 {
     svr.set_mount_point("/", this->UI_DIR_PATH);
 
@@ -321,10 +321,10 @@ chm::Server::Server(const fs::path& data_dir, const std::string& listen_addr, ui
 
 
 
-void chm::Server::listen()
+void chm::Server::listen(const std::string& listen_addr, uint16_t listen_port)
 {
     fmt::print(fg(fmt::color::green) | fmt::emphasis::bold, "🚀 Server is up at ");
-    fmt::print(fg(fmt::color::cyan) | fmt::emphasis::bold, "{}:{}", this->listen_addr, this->listen_port);
+    fmt::print(fg(fmt::color::cyan) | fmt::emphasis::bold, "{}:{}", listen_addr, listen_port);
     fmt::print("\n");
-    this->svr.listen(this->listen_addr, this->listen_port);
+    this->svr.listen(listen_addr, listen_port);
 }

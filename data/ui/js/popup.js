@@ -1,279 +1,62 @@
-function showPopup(type, data) {
-    // Create new popup container dynamically
-    const popup = document.createElement('div');
-    popup.classList.add('popup', `popup-${type}`);
+class Popup {
+    constructor() {}
 
-    popup.innerHTML = `
-        <div class="popup-header">
-            <span id="popup-title">Title</span>
-            <span class="popup-close" onclick="this.closest('.popup').remove()">×</span>
-        </div>
-        <div class="popup-content" id="popup-content">
-        Content
-        </div>
-    `;
+    showPopup(htmlContent, titleStr, subClass) {
+        const popup = document.createElement('div');
+        popup.classList.add('popup', subClass);
 
-    document.body.appendChild(popup);
+        popup.innerHTML = `
+            <div class="popup-header">
+                <span id="popup-title">Title</span>
+                <span class="popup-close" onclick="this.closest('.popup').remove()">x</span>
+            </div>
+            <div class="popup-content" id="popup-content">
+            Content
+            </div>
+        `;
 
-    const title = popup.querySelector('#popup-title');
-    const content = popup.querySelector('#popup-content');
+        document.body.appendChild(popup);
 
-    if (type === 'node') {
-        console.log(data);
-        const cid = data.cid;
-        const compound = compounds.get(cid);
-        title.textContent = compound ? compound.name : 'Node Info';
-        
-        let html = '<div class="compound-structure">';
-        html += `<img src="${compounds.getSvgPath(cid)}" alt="${compound.cmpdname}" onerror="this.style.display='none'">`;
-        html += '</div>';
+        const title = popup.querySelector('#popup-title');
+        const content = popup.querySelector('#popup-content');
 
-        if (compound.nfpa || compound.pictograms) {
-            html += '<div class="compound-hazards">'
-            if (compound.nfpa) {
+        content.innerHTML = htmlContent;
+        title.textContent = titleStr;
 
-                let createNfpaDiamond = (health, flammability, instability) => {
-                    return `
-                    <div class="nfpa-diamond">
-                    <div class="nfpa-diamond-grid">
+        popup.style.display = 'block';
+        popup.style.position = 'absolute';
+        popup.style.visibility = 'visible';
+        popup.style.opacity = '1';
 
-                        <div class="nfpa-diamond-item nfpa-flammability">
-                        <span class="nfpa-diamond-item-value">${flammability}</span>
-                        </div>
+        const rect = popup.getBoundingClientRect();
+        popup.style.left = (window.innerWidth / 2 - rect.width / 2) + 'px';
+        popup.style.top = (window.innerHeight / 2 - rect.height / 2) + 'px';
 
-                        <div class="nfpa-diamond-item nfpa-stability">
-                        <span class="nfpa-diamond-item-value">${instability}</span>
-                        </div>
-
-                        <div class="nfpa-diamond-item nfpa-health">
-                        <span class="nfpa-diamond-item-value">${health}</span>
-                        </div>
-
-                        <div class="nfpa-diamond-item nfpa-special">
-                        <span class="nfpa-diamond-item-value"></span>
-                        </div>
-
-                    </div>
-                </div>`
-                };
-
-
-                const nfpa = compound.nfpa;
-                const health = 'health' in nfpa ? nfpa.health : "";
-                const flammability = 'flammability' in nfpa ? nfpa.flammability : "";
-                const instability = 'instability' in nfpa ? nfpa.instability : "";
-                
-                html += createNfpaDiamond(health, flammability, instability);
-            }
-
-            if (compound.pictograms) {
-                html += '<div class="ghs-pictograms">';
-
-                pictograms = compound.pictograms;
-                for (const ghs of pictograms) {
-                    html += `<img src="/assets/ghs_pictograms/${ghs}.svg">`
-                }
-                
-                html += '</div>';
-            }
-
-            html += '</div>';
-        }
-
-        html += '<div class="compound-info compound-info-general">';
-        for (const entry of compound.properties) {
-            const label = entry.property_name;
-            const value = entry.property_value.split('\n').join('<br>');
-            html += '<div class="compound-info-row">';
-            html += `<span class="compound-info-label table-info">${label}</span>`;
-            html += '<span class="compound-info-value table-info">'
-            if (label.toLowerCase().includes('pubchem') && label.toLowerCase().includes('cid'))
-                html += `<a href="https://pubchem.ncbi.nlm.nih.gov/compound/${value}" target="_blank">${value}</a>`;
-            else if (label.toLowerCase().includes('wikipedia'))
-                html += `<a href="${value}" target="_blank">${value.split('/').at(-1).replace('_', ' ')}</a>`;
-            else
-                html += value;
-            html += '</span>';
-            html += '</div>';
-        }
-        html += '</div>';
-        console.log(compound);
-        const description = compound.description;
-        if (description) {
-            html += '<div class="compound-info compound-info-description">';
-            const description_html = '<p>' + description.split('\n\n').join('</p><p>') + '</p>';
-            html += `<span class="compound-info-value description">${description_html}</span>`;
-            html += '</div>';
-            html += '</div>';
-
-        }
-        
-        content.innerHTML = html;
-    } else if (type === 'edge') {
-        const sourceId = typeof data.source === 'object' ? data.source.id : data.source;
-        const targetId = typeof data.target === 'object' ? data.target.id : data.target;
-        const sourceComp = cidToCompound.get(sourceId);
-        const targetComp = cidToCompound.get(targetId);
-        const sourceName = sourceComp ? sourceComp.cmpdname : sourceId;
-        const targetName = targetComp ? targetComp.cmpdname : targetId;
-        
-        title.textContent = 'Reactions';
-        
-        const edgeStr = `${sourceId}-${targetId}`;
-        const reverseEdgeStr = `${targetId}-${sourceId}`;
-        const forwardReactionIDs = edgeToReactionID.get(edgeStr) || [];
-        const reverseReactionIDs = data.type === 'bi' ? (edgeToReactionID.get(reverseEdgeStr) || []) : [];
-        
-        let html = '';
-
-        const generateReactionParticipants = (participants, balanced) => {
-            let reactants_htmls = [];
-            for (const entry of participants) {
-                const cid = entry.cid;
-                const compound = cidToCompound.get(cid);
-                const name = compound.cmpdname;
-                let curr_html = ""
-                curr_html += `<div class="reaction-participant">`;
-                curr_html += `<img class="reaction-svg-image" src="data/structures/${cid}.svg" alt="${name}" data-cid="${cid}">`;
-                curr_html += `<span class="reaction-participant-name" title="${name}">${name}</span>`;
-                curr_html += '</div>';
-                
-                if (balanced) {
-                    const coeff = entry.coeff;
-                    curr_html = `<div class="reaction-participant-balanced"><span class="reaction-participant-coeff">${coeff}</span>${curr_html}</div>`
-                }
-                reactants_htmls.push(curr_html)
-            }
-            return reactants_htmls.join('<span class="reaction-sep reaction-sep-plus">+</span>')
-        };
-
-        const generateReactionItem = (rid) => {
-            const getConfidenceClass = (confidence) => {
-                const classPrefix = 'reaction-confidence-'
-                if (confidence < 0.5)
-                    return classPrefix + 'low';
-                else if (confidence < 0.7)
-                    return classPrefix + 'medium';
-                else
-                    return classPrefix + 'high';
-            };
-
-            item_html = "";
-            const reaction = RIDToReaction.get(rid);
-            if (reaction) {
-                const balanced = reaction.balanced;
-                item_html += '<div class="reaction-item">';
-                item_html += `<div class="reaction-equation">`;
-                item_html += generateReactionParticipants(reaction.reagents, balanced);
-                item_html += '<span class="reaction-sep reaction-sep-arrow">→</span>';
-                item_html += generateReactionParticipants(reaction.products, balanced);
-                item_html += '</div>';
-
-                const description = ridToDescription.get(rid);
-                if (description) {
-                    item_html += '<div class="reaction-description">';
-                    item_html += '<strong>Description:</strong> ';
-                    item_html += description;
-                    item_html += '</div>';
-                }
-
-                const confidence = reaction.confidence;
-                if (confidence) {
-                    const confidenceClass = getConfidenceClass(confidence);
-                    item_html += `<span class="reaction-confidence ${confidenceClass}" title="This reaction is generated automatically and this is its validation score.">${confidence.toFixed(2)}</span>`;
-                } else if (reaction.source == 'ord') {
-                    item_html += `<img src="data/assets/ord.svg" class="reaction-ord-label" title="Sourced from Open Reaction Database">`
-                }
-
-                item_html += '</div>';
-            }
-
-            return item_html;
-        };
-
-        const generateReactionList = (rids) => {
-            let reactionsHtml = "";
-            if (rids.length > 0) {
-                rids.forEach(rid => {
-                    reactionsHtml += generateReactionItem(rid);
-                });
-            } else {
-                reactionsHtml += '<div class="reaction-item">No reactions found</div>';
-            }
-
-            return reactionsHtml;
-        };
-        
-        if (data.type === 'bi') {
-            html += '<div class="popup-split">';
-            
-            html += '<div class="popup-direction">';
-            html += `<h4> ${sourceName} → ${targetName}</h4>`;
-            html += generateReactionList(forwardReactionIDs);
-            html += '</div>';
-            
-            html += '<div class="popup-direction">';
-            html += `<h4> ${targetName} → ${sourceName}</h4>`;
-            html += generateReactionList(reverseReactionIDs);
-            html += '</div>';
-            
-            html += '</div>';
-        } else {
-            html += '<div class="popup-direction">';
-            html += `<h4> ${sourceName} → ${targetName}</h4>`;
-            html += generateReactionList(forwardReactionIDs);
-            html += '</div>';
-        }
-        
-        content.innerHTML = html;
+        this.#makeDraggable(popup);
     }
 
-    popup.style.display = 'block';
-    popup.style.position = 'absolute';
-    popup.style.visibility = 'visible';
-    popup.style.opacity = '1';
 
-    const rect = popup.getBoundingClientRect();
-    popup.style.left = (window.innerWidth / 2 - rect.width / 2) + 'px';
-    popup.style.top = (window.innerHeight / 2 - rect.height / 2) + 'px';
+     #makeDraggable(element) {
+        const header = element.querySelector('.popup-header');
+        header.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            let shiftX = e.clientX - element.getBoundingClientRect().left;
+            let shiftY = e.clientY - element.getBoundingClientRect().top;
 
-    makeDraggable(popup);
+            function moveAt(pageX, pageY) {
+                element.style.left = pageX - shiftX + 'px';
+                element.style.top = pageY - shiftY + 'px';
+            }
 
-    document.querySelectorAll('.reaction-svg-image').forEach(el => {
-        el.onclick = () => {
-            const cid = Number(el.dataset.cid);
-            showCompoundInfoPopup(cid);
-        };
-    });
-}
+            function onMouseMove(e) {
+                moveAt(e.pageX, e.pageY);
+            }
 
+            document.addEventListener('mousemove', onMouseMove);
 
-function showCompoundInfoPopup(cid) {
-    const name = compounds.get(cid).name;
-    showPopup('node', {id: cid, name: name});
-}
-
-
-function makeDraggable(element) {
-    const header = element.querySelector('.popup-header');
-    header.addEventListener('mousedown', function(e) {
-        e.preventDefault();
-        let shiftX = e.clientX - element.getBoundingClientRect().left;
-        let shiftY = e.clientY - element.getBoundingClientRect().top;
-
-        function moveAt(pageX, pageY) {
-            element.style.left = pageX - shiftX + 'px';
-            element.style.top = pageY - shiftY + 'px';
-        }
-
-        function onMouseMove(e) {
-            moveAt(e.pageX, e.pageY);
-        }
-
-        document.addEventListener('mousemove', onMouseMove);
-
-        document.addEventListener('mouseup', function() {
-            document.removeEventListener('mousemove', onMouseMove);
-        }, {once: true});
-    });
+            document.addEventListener('mouseup', function() {
+                document.removeEventListener('mousemove', onMouseMove);
+            }, {once: true});
+        });
+    }
 }

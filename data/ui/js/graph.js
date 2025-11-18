@@ -1,195 +1,21 @@
-function bitCount(n) {
-    n = n - ((n >> 1) & 0x55555555);
-    n = (n & 0x33333333) + ((n >> 2) & 0x33333333);
-    return ((n + (n >> 4) & 0x0f0f0f0f) * 0x01010101) >> 24;
-}
-
-function computeTanimoto(fp1, fp2) {
-    let andPop = 0;
-    for (let i = 0; i < 32; i++) {
-        const and = fp1.bits[i] & fp2.bits[i];
-        andPop += bitCount(and);
-    }
-    const orPop = fp1.popcount + fp2.popcount - andPop;
-    return orPop === 0 ? 1 : andPop / orPop;
-}
-
-class PriorityQueue {
-    constructor(comparator = (a, b) => a - b) {
-        this._heap = [];
-        this._comparator = comparator;
-    }
-    size() {
-        return this._heap.length;
-    }
-    peek() {
-        return this._heap[0];
-    }
-    push(value) {
-        this._heap.push(value);
-        this._siftUp();
-        return this.size();
-    }
-    pop() {
-        const poppedValue = this.peek();
-        const bottom = this.size() - 1;
-        if (bottom > 0) {
-            this._swap(0, bottom);
-        }
-        this._heap.pop();
-        this._siftDown();
-        return poppedValue;
-    }
-    _greater(i, j) {
-        return this._comparator(this._heap[i], this._heap[j]) < 0;
-    }
-    _swap(i, j) {
-        [this._heap[i], this._heap[j]] = [this._heap[j], this._heap[i]];
-    }
-    _siftUp() {
-        let node = this.size() - 1;
-        while (node > 0 && this._greater(node, Math.floor((node - 1) / 2))) {
-            this._swap(node, Math.floor((node - 1) / 2));
-            node = Math.floor((node - 1) / 2);
-        }
-    }
-    _siftDown() {
-        let node = 0;
-        while (
-            (2 * node + 1 < this.size() && this._greater(2 * node + 1, node)) ||
-            (2 * node + 2 < this.size() && this._greater(2 * node + 2, node))
-        ) {
-            let maxChild = (2 * node + 2 < this.size() && this._greater(2 * node + 2, 2 * node + 1)) ? 2 * node + 2 : 2 * node + 1;
-            this._swap(node, maxChild);
-            node = maxChild;
-        }
-    }
-}
-
-function minH(node, ends) {
-    let maxSim = 0;
-    for (let end of ends) {
-        const sim = computeTanimoto(cidToCompound.get(node).ECFP4_fp, cidToCompound.get(end).ECFP4_fp);
-        if (sim > maxSim) maxSim = sim;
-    }
-    return 1 - maxSim;
-}
-
-function findKShortestPaths(sources, targets, k, maxLen) {
-    // Finds paths from targets to sources using reversed graph and then reverses paths
-
-    const sourceSet = new Set(sources);
-    const pq = new PriorityQueue((a, b) => a.f - b.f);
-    const paths = [];
-
-    for (let target of targets) {
-        const h = minH(target, sources);
-        pq.push({f: 0 + h, cost: 0, node: target, path: [target]});
-    }
-
-    while (pq.size() > 0 && paths.length < k) {
-        const current = pq.pop();
-        const {cost, node, path} = current;
-
-        if (cost > maxLen) continue;
-
-        if (sourceSet.has(node) && cost > 0) {
-            paths.push({path, length: cost});
-            continue;
-        }
-
-        for (let neigh of graph_reverse.get(node) || []) {
-            if (path.includes(neigh)) continue;
-            if (backgroundCids.has(neigh) && !sourceSet.has(neigh)) continue;
-            const newCost = cost + 1;
-            const h = minH(neigh, sources);
-            const newF = newCost + h;
-            const newPath = [...path, neigh];
-            pq.push({f: newF, cost: newCost, node: neigh, path: newPath});
-        }
-    }
-
-    paths.forEach(path => { path.path.reverse() })
-
-    return paths;
-}
-
-function _findKShortestPathsSingleList(nodes_list, k, maxLen, working_graph) {
-    //const queue = [];
-    const queue = new PriorityQueue((a, b) => a.f - b.f);
-    const paths = [];
-
-    for (let node of nodes_list) {
-        queue.push({f: 0, cost: 0, node: node, path: [node]});
-    }
-
-    while (queue.size() > 0 && paths.length < k) {
-        const current = queue.pop();
-        const {cost, node, path} = current;
-
-        if (cost > maxLen) continue;
-        
-        if (cost > 0)
-            paths.push({path, length: cost});
-
-        for (let neigh of working_graph.get(node) || []) {
-            const h = minH(neigh, nodes_list);
-            if (path.includes(neigh) || backgroundCids.has(neigh)) continue;
-            const newCost = cost + 1;
-            const newPath = [...path, neigh];
-            queue.push({f: h, cost: newCost, node: neigh, path: newPath});
-        }
-    }
-
-    return paths;
-}
-
-function findKShortestPathsOnlyTargets(targets, k, maxLen) {
-    const paths = _findKShortestPathsSingleList(targets, k, maxLen, graph_reverse);
-    paths.forEach(path => { path.path.reverse() });
-    return paths;
-}
-
-function findKShortestPathsOnlySources(sources, k, maxLen) {
-    return _findKShortestPathsSingleList(sources, k, maxLen, graph);
-}
-
-
-function getProcessedLinks() {
-    const links = [];
-    const processed = new Set();
-    for (let edge of directedEdges) {
-        if (processed.has(edge)) continue;
-        const [a, b] = edge.split('-').map(Number);
-
-        const reverse = `${b}-${a}`;
-        let type = null;
-        if (directedEdges.has(reverse)) {
-            type = 'bi';
-            processed.add(reverse);
-        } else {
-            type = 'directed';
-        }
-
-        const secondary = secondaryNodes.has(a) || secondaryNodes.has(b);
-        links.push({source: a, target: b, type, secondary});
-        processed.add(edge);
-    }
-    return links;
-}
-
-
 class Graph {
-    constructor(catalog) {
-        this.catalog = catalog
+    constructor(catalog, reactions) {
+        this.catalog = catalog;
+        this.reactions = reactions;
         this.max_paths = null;
         this.max_cost = null;
         this.primary_only = false;
-        this.api = null;
         this.edgeToRids = new Map();
+
+        this.simulation = null;
+        this.tooltip = null;
     }
 
     async submit() {
+        showLoading('Computing graph...');
+
+        this.edgeToRids.clear();
+
         const sources = Array.from(this.catalog.sourceCids);
         const targets = Array.from(this.catalog.targetCids);
 
@@ -214,6 +40,7 @@ class Graph {
         const data = await response.json();
 
         let allCids = new Set();
+        let allRids = new Set();
         let nodes = [];
         let links = [];
         const targetMap = new Map();
@@ -234,11 +61,15 @@ class Graph {
             const sourceCid = d.cid;
             d.targets.forEach(target => {
                 const targetCid = target.cid;
-                const edge = [sourceCid, targetCid].sort().join('|');
+                const edge = this.getEdgeId(sourceCid, targetCid);
                 if (!this.edgeToRids.has(edge)) {
                     const isBi = targetMap.get(targetCid)?.has(sourceCid);
                     links.push({ source: sourceCid, target: targetCid, type: isBi ? "bi" : "directed", primary: d.primary});
-                    this.edgeToRids.set(edge, new Set(target.reactions));
+                    
+                    const currRids = new Set(target.reactions);
+                    currRids.forEach(rid => allRids.add(rid));
+                    this.edgeToRids.set(edge, currRids);
+
                     allCids.add(targetCid);
                 }
                 else {
@@ -248,8 +79,17 @@ class Graph {
                 }
             });
             allCids.add(sourceCid);
-            console.log(JSON.stringify(links));
         });
+        
+        if(!await this.reactions.loadReactions(Array.from(allRids)))
+            throw new Error("Failed to load reactions needed for graph constructions");
+
+        for(const rid of allRids) {
+            const reaction = this.reactions.get(rid);
+            reaction["reactants"].forEach(entry => allCids.add(entry.cid));
+            reaction["products"].forEach(entry => allCids.add(entry.cid));
+        }
+
 
         if(!await this.catalog.compounds.loadCompounds(Array.from(allCids)))
             throw new Error("Failed to load compounds needed for graph constructions");
@@ -267,16 +107,24 @@ class Graph {
             node.organic = comp ? comp.organic : false;
         });
 
-        if(this.api != null) {
-            this.api.destroy();
-            this.api = null;
-        }
-        this.api = this.#renderGraphWebGL(nodes, links);
+
+        this.#renderGraph(nodes, links);
+
+        hideLoading();
     }
 
-    #renderGraphWebGL(nodes, links) {
+    getEdgeId(sourceCid, targetCid) {
+        return [sourceCid, targetCid].sort().join('|');
+    }
+
+    #renderGraph(nodes, links) {
+        // 1. Stop old simulation
+        if (this.simulation) {
+            this.simulation.stop();
+        }
+
         const main = d3.select("#main");
-        main.html("");
+        main.html("");  // safe now
 
         const width = main.node().clientWidth;
         const height = main.node().clientHeight;
@@ -293,10 +141,10 @@ class Graph {
         defs.append("marker")
             .attr("id", "arrow")
             .attr("viewBox", "0 -3 10 6")
-            .attr("refX", "10")
-            .attr("refY", "0")
-            .attr("markerWidth", "6")
-            .attr("markerHeight", "6")
+            .attr("refX", 10)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
             .attr("orient", "auto")
             .append("path")
             .attr("d", "M0,-3L10,0L0,3")
@@ -305,10 +153,10 @@ class Graph {
         defs.append("marker")
             .attr("id", "arrow-start")
             .attr("viewBox", "0 -3 10 6")
-            .attr("refX", "10")
-            .attr("refY", "0")
-            .attr("markerWidth", "6")
-            .attr("markerHeight", "6")
+            .attr("refX", 10)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
             .attr("orient", "auto-start-reverse")
             .append("path")
             .attr("d", "M0,-3L10,0L0,3")
@@ -316,7 +164,22 @@ class Graph {
 
         const g = svg.append("g");
 
-        const simulation = d3.forceSimulation(nodes)
+        // 3. Create tooltip only ONCE
+        if (!this.tooltip) {
+            this.tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0)
+                .style("position", "absolute")
+                .style("pointer-events", "none")
+                .style("background", "white")
+                .style("border", "1px solid #ccc")
+                .style("border-radius", "4px")
+                .style("padding", "8px")
+                .style("box-shadow", "0 2px 10px rgba(0,0,0,0.1)")
+                .style("z-index", 10000);
+        }
+
+        this.simulation = d3.forceSimulation(nodes)
             .force("link", d3.forceLink(links).id(d => d.cid).distance(100))
             .force("charge", d3.forceManyBody().strength(-200))
             .force("center", d3.forceCenter(width / 2, height / 2));
@@ -337,8 +200,8 @@ class Graph {
             .on("mouseout", function(event, d) {
                 d3.select(this).attr("stroke-width", 2).attr("stroke", "#b8a8d9");
             })
-            .on("click", function(event, d) {
-                showPopup('edge', d);
+            .on("click", (event, d) => {
+                this.showPopupEdge(d);
             });
         
         const secondaryOpacity = 0.3;
@@ -351,47 +214,60 @@ class Graph {
             .attr("opacity", d => d.primary ? defaultOpacity : secondaryOpacity )
             .style("cursor", "pointer")
             .call(d3.drag()
-                .on("start", dragstarted)
-                .on("drag", dragged)
-                .on("end", dragended)
+                .on("start", (event, d) => {
+                    if (!event.active) this.simulation.alphaTarget(0.3).restart();
+                    d.fx = d.x;
+                    d.fy = d.y;
+                })
+                .on("drag", (event, d) => {
+                    d.fx = event.x;
+                    d.fy = event.y;
+                })
+                .on("end", (event, d) => {
+                    if (!event.active) this.simulation.alphaTarget(0);
+                    d.fx = null;
+                    d.fy = null;
+                })
             )
-            .on("mouseover", function(event, d) {
-                d3
-                .select(this)
-                .attr('opacity', defaultOpacity)
-                .select("circle, rect, polygon")
-                .attr("r", 8).attr("width", 16)
-                .attr("height", 16)
-                .attr("points", "0,-8 8,8 -8,8");
-                hoverTimeout = setTimeout(() => {
-                    tooltip.transition()
-                        .duration(200)
-                        .style("opacity", .9);
-                    tooltip.html(`<img src="${compounds.getSvgPath(d.cid)}" alt="${d.name}"><div class="tooltip-name">${d.name}</div>`)
-                        .style("left", (event.pageX + 10) + "px")
-                        .style("top", (event.pageY - 28) + "px");
-                }, 500);
+            .on("mouseover", (event, d) => {
+                const element = d3.select(event.currentTarget);
+
+                element
+                    .attr('opacity', defaultOpacity)
+                    .select("circle, rect, polygon")
+                    .attr("r", 8).attr("width", 16)
+                    .attr("height", 16)
+                    .attr("points", "0,-8 8,8 -8,8");
+                    hoverTimeout = setTimeout(() => {
+                        this.tooltip.transition()
+                            .duration(200)
+                            .style("opacity", .9);
+                        this.tooltip.html(`<img src="${this.catalog.compounds.getSvgPath(d.cid)}" alt="${d.name}"><div class="tooltip-name">${d.name}</div>`)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    }, 500);
             })
-            .on("mousemove", function(event, d) {
-                tooltip.style("left", (event.pageX + 10) + "px")
+            .on("mousemove", (event, d) => {
+                this.tooltip.style("left", (event.pageX + 10) + "px")
                     .style("top", (event.pageY - 28) + "px");
             })
-            .on("mouseout", function(event, d) {
-                d3
-                .select(this)
-                .attr('opacity', d => d.primary ? defaultOpacity : secondaryOpacity)
-                .select("circle, rect, polygon")
-                .attr("r", 5)
-                .attr("width", 10)
-                .attr("height", 10)
-                .attr("points", "0,-5 5,5 -5,5");
-                clearTimeout(hoverTimeout);
-                tooltip.transition()
-                    .duration(500)
-                    .style("opacity", 0);
+            .on("mouseout", (event, d) => {
+                const element = d3.select(event.currentTarget);
+                
+                element
+                    .attr('opacity', d => d.primary ? defaultOpacity : secondaryOpacity)
+                    .select("circle, rect, polygon")
+                    .attr("r", 5)
+                    .attr("width", 10)
+                    .attr("height", 10)
+                    .attr("points", "0,-5 5,5 -5,5");
+                    clearTimeout(hoverTimeout);
+                    this.tooltip.transition()
+                        .duration(500)
+                        .style("opacity", 0);
             })
-            .on("click", function(event, d) {
-                showPopup('node', d);
+            .on("click", (event, d) => {
+                this.catalog.showPopupNode(d.cid);
             });
         
         const catalog = this.catalog;
@@ -425,11 +301,7 @@ class Graph {
             .attr("fill", "#4a4a6a")
             .attr("font-weight", 500);
 
-        const tooltip = d3.select("body").append("div")
-            .attr("class", "tooltip")
-            .style("opacity", 0);
-
-        simulation.on("tick", () => {
+        this.simulation.on("tick", () => {
             link
                 .attr("x1", d => {
                     const dx = d.target.x - d.source.x;
@@ -468,23 +340,6 @@ class Graph {
                 .attr("transform", d => `translate(${d.x}, ${d.y})`);
         });
 
-        function dragstarted(event, d) {
-            if (!event.active) simulation.alphaTarget(0.3).restart();
-            d.fx = d.x;
-            d.fy = d.y;
-        }
-
-        function dragged(event, d) {
-            d.fx = event.x;
-            d.fy = event.y;
-        }
-
-        function dragended(event, d) {
-            if (!event.active) simulation.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
-        }
-
         const zoom = d3.zoom()
             .scaleExtent([0.5, 4])
             .on("zoom", ({transform}) => {
@@ -494,95 +349,135 @@ class Graph {
         svg.call(zoom);
     }
 
-}
 
-function handleSubmit() {
-    secondaryNodes = new Set();
-    directedEdges = new Set();
+    showPopupEdge(edge_data) {
+        const sourceCid = edge_data.source.cid;
+        const targetCid = edge_data.target.cid;
+        const sourceComp = compounds.get(sourceCid);
+        const targetComp = compounds.get(targetCid);
+        const sourceName = sourceComp.name;
+        const targetName = targetComp.name;
+        
+        const edgeId = this.getEdgeId(sourceCid, targetCid);
+        const reverseEdgeId = this.getEdgeId(targetCid, sourceCid);
+        const forwardReactionIDs = this.edgeToRids.get(edgeId) || [];
+        const reverseReactionIDs = edge_data.type === 'bi' ? (this.edgeToRids.get(reverseEdgeId) || []) : [];
+        
+        let html = '';
 
-    const sources = Array.from(sourceNodes);
-    const targets = Array.from(targetNodes);
+        const generateReactionParticipants = (participants, balanced) => {
+            let reactants_htmls = [];
+            for (const entry of participants) {
+                const cid = entry.cid;
+                const compound = this.catalog.compounds.get(cid);
+                const name = compound.name;
+                const svgPath = this.catalog.compounds.getSvgPath(cid);
+                let curr_html = ""
+                curr_html += `<div class="reaction-participant">`;
+                curr_html += `<img class="reaction-svg-image" src="${svgPath}" alt="${name}" data-cid="${cid}">`;
+                curr_html += `<span class="reaction-participant-name" title="${name}">${name}</span>`;
+                curr_html += '</div>';
+                
+                if (balanced) {
+                    const coeff = entry.coeff;
+                    curr_html = `<div class="reaction-participant-balanced"><span class="reaction-participant-coeff">${coeff}</span>${curr_html}</div>`
+                }
+                reactants_htmls.push(curr_html)
+            }
+            return reactants_htmls.join('<span class="reaction-sep reaction-sep-plus">+</span>')
+        };
 
-    const sourcesSelected = sources.length > 0;
+        const generateReactionItem = (rid) => {
+            const getConfidenceClass = (confidence) => {
+                const classPrefix = 'reaction-confidence-'
+                if (confidence < 0.5)
+                    return classPrefix + 'low';
+                else if (confidence < 0.7)
+                    return classPrefix + 'medium';
+                else
+                    return classPrefix + 'high';
+            };
 
-    let k = parseInt(document.getElementById('k-slider').value);
-    if (k === 11) k = Infinity;
-    const n = parseInt(document.getElementById('n-slider').value);
+            let item_html = "";
+            const reaction = this.reactions.get(rid);
+            if (reaction) {
+                const balanced = reaction.balanced;
+                item_html += '<div class="reaction-item">';
+                item_html += `<div class="reaction-equation">`;
+                item_html += generateReactionParticipants(reaction.reactants, balanced);
+                item_html += '<span class="reaction-sep reaction-sep-arrow">→</span>';
+                item_html += generateReactionParticipants(reaction.products, balanced);
+                item_html += '</div>';
 
-    showLoading('Computing paths...', false);
+                const description = reaction.description;
+                if (description) {
+                    item_html += '<div class="reaction-description">';
+                    item_html += '<strong>Description:</strong> ';
+                    item_html += description;
+                    item_html += '</div>';
+                }
 
-    setTimeout(() => {
-        let allPaths = null;
-        if (sources.length > 0 && targets.length > 0)
-            allPaths = findKShortestPaths(sources, targets, k, n);
-        else if (sources.length > 0)
-            allPaths = findKShortestPathsOnlySources(sources, k, n);
-        else if (targets.length > 0)
-            allPaths = findKShortestPathsOnlyTargets(targets, k, n);
-        else {
-            alert('Add at list one compound to any list');
-            return;
+                const confidence = reaction.confidence;
+                if (confidence) {
+                    const confidenceClass = getConfidenceClass(confidence);
+                    item_html += `<span class="reaction-confidence ${confidenceClass}" title="This reaction is generated automatically and this is its validation score.">${confidence.toFixed(2)}</span>`;
+                } else if (reaction.source == 'ord') {
+                    item_html += `<img src="assets/ord.svg" class="reaction-ord-label" title="Sourced from Open Reaction Database">`
+                }
+
+                item_html += '</div>';
+            }
+
+            return item_html;
+        };
+
+        const generateReactionList = (rids) => {
+            let reactionsHtml = "";
+            if (rids.size > 0) {
+                rids.forEach(rid => {
+                    reactionsHtml += generateReactionItem(rid);
+                });
+            } else {
+                reactionsHtml += '<div class="reaction-item">No reactions found</div>';
+            }
+
+            return reactionsHtml;
+        };
+        
+        if (edge_data.type === 'bi') {
+            html += '<div class="popup-split">';
+            
+            html += '<div class="popup-direction">';
+            html += `<h4> ${sourceName} → ${targetName}</h4>`;
+            html += generateReactionList(forwardReactionIDs);
+            html += '</div>';
+            
+            html += '<div class="popup-direction">';
+            html += `<h4> ${targetName} → ${sourceName}</h4>`;
+            html += generateReactionList(reverseReactionIDs);
+            html += '</div>';
+            
+            html += '</div>';
+        } else {
+            html += '<div class="popup-direction">';
+            html += `<h4> ${sourceName} → ${targetName}</h4>`;
+            html += generateReactionList(forwardReactionIDs);
+            html += '</div>';
         }
 
-        selectedCIDs.clear();
+        this.catalog.popup.showPopup(html, 'Reactions', 'popup-edge');
 
-        allPaths.forEach(({path}) => path.forEach(node => selectedCIDs.add(node)));
-        allPaths.forEach(({path}) => {
-            for (let i = 0; i < path.length - 1; i++) {
-                const edgeStr = `${path[i]}-${path[i+1]}`;
-                const reactionIDs = edgeToReactionID.get(edgeStr);
-                for(const rid of reactionIDs) {
-                    const reaction = RIDToReaction.get(rid);
-                    for(const reagent of reaction.reagents) {
-                        const cid = reagent.cid;
-                        directedEdges.add(`${cid}-${path[i+1]}`);
-                        if(!selectedCIDs.has(cid)) {
-                            secondaryNodes.add(cid);
-                            selectedCIDs.add(cid);
-                        }
-                    }
-                }
-            }
-        });
-        
-        updateGraph();
-        hideLoading();
-    }, 0);
-
-
-    
-}
-
-function updateGraph(cid = null) {
-    const selectedArray = Array.from(selectedCIDs);
-    if (selectedArray.length === 0) {
-        document.getElementById('main').innerHTML = originalMainContent;
-        return;
-    }
-
-    if(cid !== null) {
-        selectedCIDs.forEach(selected_cid => {
-            cidToEdges.get(selected_cid)
-                .filter(edge => 
-                    selectedCIDs.has(edge.source) && selectedCIDs.has(edge.target) &&
-                    (edge.source === cid || edge.target === cid) &&
-                    !secondaryNodes.has(edge.source) && !secondaryNodes.has(edge.target))
-                .forEach(edge => directedEdges.add(`${edge.source}-${edge.target}`));
+        document.querySelectorAll('.reaction-svg-image').forEach(el => {
+            el.onclick = () => {
+                const cid = Number(el.dataset.cid);
+                this.#showCompoundInfoPopup(cid);
+            };
         });
     }
 
-    const nodes = selectedArray.map(node => {
-        const comp = cidToCompound.get(node);
-        return {
-            id: node,
-            name: comp ? comp.cmpdname : 'Unknown',
-            organic: comp ? comp.organic : false,
-            secondary: secondaryNodes.has(node)
-        };
-    });
 
-    const links = getProcessedLinks();
-
-    refreshResults();
-    const api = renderGraph(nodes, links);
+    #showCompoundInfoPopup(cid) {
+        const name = this.catalog.compounds.get(cid).name;
+        this.catalog.showPopupNode(cid);
+    }
 }

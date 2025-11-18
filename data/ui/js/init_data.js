@@ -28,29 +28,12 @@ let cidToHazards = new Map();
 let sortingOrder = "none";
 let currentPage = 0;
 let compounds = new Compounds();
-let catalog = new Catalog(compounds);
-let graph = new Graph(catalog);
+let reactions = new Reactions();
+let popup = new Popup();
+let catalog = new Catalog(compounds, popup);
+let graph = new Graph(catalog, reactions);
 
-async function loadData(fileName) {
-    try {
-        const response = await fetch(fileName, { cache: "no-store" });
-        const text = await response.text();
 
-        let data = [];
-        if (fileName.endsWith('.jsonl')) {
-            data = text.split('\n').filter(line => line.trim() !== '');
-            data = data.map(line => JSON.parse(line));
-        }
-        else if (fileName.endsWith('.json')) {
-            data = JSON.parse(text);
-        }
-
-        return data;
-    } catch(error) {
-        console.error(`Error during fetching: ${fileName}; ${error}`);
-        return [];
-    }
-}
 
 async function initializeData() {
     showLoading('Loading data...');

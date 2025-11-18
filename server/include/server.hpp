@@ -28,9 +28,9 @@ namespace chm
 
     public:
 
-        Server(const fs::path& data_dir, const std::string& listen_addr, uint16_t listen_port);
+        Server(const fs::path& data_dir);
 
-        void listen();
+        void listen(const std::string& listen_addr, uint16_t listen_port);
     };
 }
 

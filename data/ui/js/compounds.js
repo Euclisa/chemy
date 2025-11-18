@@ -29,26 +29,6 @@ class Compounds {
         }
     }
 
-    async #loadCompoundSingle(cid) {
-        try {
-            const response = await fetch(this.apiEndpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify([cid])
-            });
-
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-            const data = await response.json();
-            if(data.length != 1) throw new Error(`Expected to fetch 1 compound got ${data.length}`);
-
-            const compound = data[0];
-            this.compoundsMap.set(compound.cid, compound);
-        } catch (error) {
-            console.error("Error loading compounds:", error);
-        }
-    }
-
     get(cid) {
         if(!this.compoundsMap.has(cid))
             throw new Error(`Compound with CID ${cid} isn't fetched`);

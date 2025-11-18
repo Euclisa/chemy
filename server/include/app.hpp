@@ -72,7 +72,7 @@ namespace chm
         using reaction_participants_t = std::unordered_map<std::string, std::pair<std::vector<cid_t>, std::vector<cid_t>>>;
         reaction_participants_t reaction_participants;
 
-        FuzzyMap<cid_t> fuzzy;
+        FuzzyMap<cid_t> *fuzzy{nullptr};
 
         pqxx::result run_pqxx_request(const std::string& sql);
         template<typename... Args>
@@ -246,6 +246,7 @@ namespace chm
         for(const auto& row : details_rows)
         {
             std::string rid = row[0].as<std::string>();
+            reaction_infos[rid]["rid"] = rid;
             reaction_infos[rid]["balanced"] = row[1].as<bool>();
             reaction_infos[rid]["complexity"] = row[2].as<float>();
             reaction_infos[rid]["source"] = row[3].as<std::string>();

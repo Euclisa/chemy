@@ -67,6 +67,8 @@ chm::App::~App()
 {
     if(this->conn)
         delete this->conn;
+    if(this->fuzzy)
+        delete this->fuzzy;
 }
 
 
@@ -222,10 +224,10 @@ void chm::App::setup_fuzzy()
         syn_entries.push_back(std::make_pair(synonym, cid));
     }
 
-    this->fuzzy.insert_entries(syn_entries);
+    this->fuzzy = new FuzzyMap(syn_entries);
     std::cout << "Inserted\n";
 
-    auto res = this->fuzzy.search("amphetamine");
+    auto res = this->fuzzy->search("amphetamine");
     for(const auto& entry : res)
     {
         std::cout << entry.first << " -> " << entry.second << '\n';

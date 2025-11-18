@@ -224,7 +224,7 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_single_list(const
             if(curr_trie->get_depth() == max_cost + 1U)
             {
                 if(save_path_check_exit(neigh_trie))
-                    goto return_paths;
+                    return result_paths;
             }
             else
                 pqueue.push(neigh_trie);
@@ -233,11 +233,9 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_single_list(const
         if(curr_trie->children.size() == 0)
         {
             if(save_path_check_exit(curr_trie))
-                goto return_paths;
+                return result_paths;
         }
     }
-
-    return_paths:
 
     return result_paths;
 }
@@ -250,7 +248,11 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_sources_only(cons
 
 std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_targets_only(const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths)
 {
-    return this->find_paths_single_list(targets, this->graph_reverse, max_cost, max_paths);
+    std::vector<std::vector<cid_t>> paths = this->find_paths_single_list(targets, this->graph_reverse, max_cost, max_paths);
+    for(auto& path : paths)
+        std::reverse(path.begin(), path.end());
+
+    return paths;
 }
 
 

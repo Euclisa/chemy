@@ -1,6 +1,7 @@
 class Catalog extends PathsList {
-    constructor(compounds) {
+    constructor(compounds, popup) {
         super(compounds);
+        this.popup = popup;
         this.results = [];
         this.isEnd = false;
         this.query = null;
@@ -178,5 +179,96 @@ class Catalog extends PathsList {
         if (!this.isEnd) {
             this.#addLoadMoreButton();
         }
+    }
+
+
+    showPopupNode(cid) {
+        const compound = compounds.get(cid);
+        const name = compound.name;
+        
+        let html = '<div class="compound-structure">';
+        html += `<img src="${compounds.getSvgPath(cid)}" alt="${name}" onerror="this.style.display='none'">`;
+        html += '</div>';
+
+        if (compound.nfpa || compound.pictograms) {
+            html += '<div class="compound-hazards">'
+            if (compound.nfpa) {
+
+                let createNfpaDiamond = (health, flammability, instability) => {
+                    return `
+                    <div class="nfpa-diamond">
+                    <div class="nfpa-diamond-grid">
+
+                        <div class="nfpa-diamond-item nfpa-flammability">
+                        <span class="nfpa-diamond-item-value">${flammability}</span>
+                        </div>
+
+                        <div class="nfpa-diamond-item nfpa-stability">
+                        <span class="nfpa-diamond-item-value">${instability}</span>
+                        </div>
+
+                        <div class="nfpa-diamond-item nfpa-health">
+                        <span class="nfpa-diamond-item-value">${health}</span>
+                        </div>
+
+                        <div class="nfpa-diamond-item nfpa-special">
+                        <span class="nfpa-diamond-item-value"></span>
+                        </div>
+
+                    </div>
+                </div>`
+                };
+
+
+                const nfpa = compound.nfpa;
+                const health = 'health' in nfpa ? nfpa.health : "";
+                const flammability = 'flammability' in nfpa ? nfpa.flammability : "";
+                const instability = 'instability' in nfpa ? nfpa.instability : "";
+                
+                html += createNfpaDiamond(health, flammability, instability);
+            }
+
+            if (compound.pictograms) {
+                html += '<div class="ghs-pictograms">';
+
+                const pictograms = compound.pictograms;
+                for (const ghs of pictograms) {
+                    html += `<img src="/assets/ghs_pictograms/${ghs}.svg">`
+                }
+                
+                html += '</div>';
+            }
+
+            html += '</div>';
+        }
+
+        html += '<div class="compound-info compound-info-general">';
+        for (const entry of compound.properties) {
+            const label = entry.property_name;
+            const value = entry.property_value.split('\n').join('<br>');
+            html += '<div class="compound-info-row">';
+            html += `<span class="compound-info-label table-info">${label}</span>`;
+            html += '<span class="compound-info-value table-info">'
+            if (label.toLowerCase().includes('pubchem') && label.toLowerCase().includes('cid'))
+                html += `<a href="https://pubchem.ncbi.nlm.nih.gov/compound/${value}" target="_blank">${value}</a>`;
+            else if (label.toLowerCase().includes('wikipedia'))
+                html += `<a href="${value}" target="_blank">${value.split('/').at(-1).replace('_', ' ')}</a>`;
+            else
+                html += value;
+            html += '</span>';
+            html += '</div>';
+        }
+        html += '</div>';
+        console.log(compound);
+        const description = compound.description;
+        if (description) {
+            html += '<div class="compound-info compound-info-description">';
+            const description_html = '<p>' + description.split('\n\n').join('</p><p>') + '</p>';
+            html += `<span class="compound-info-value description">${description_html}</span>`;
+            html += '</div>';
+            html += '</div>';
+        }
+
+        this.popup.showPopup(html, name, 'popup-node');
     }
 }

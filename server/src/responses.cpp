@@ -35,7 +35,7 @@ nlohmann::json chm::App::build_graph(const std::vector<cid_t>& sources, const st
 
 std::vector<chm::App::cid_t> chm::App::search_compounds(const std::string& query)
 {
-    auto results = this->fuzzy.search(query);
+    auto results = this->fuzzy->search(query);
     std::vector<cid_t> result_cids(results.size());
     std::transform(results.begin(), results.end(), result_cids.begin(), [](const std::pair<cid_t, double>& x) { return x.first; });
 
