@@ -11,6 +11,36 @@ class Catalog extends PathsList {
         this.searchApiEndpoint = "/api/search";
         this.loaded = null;
 
+
+        this.sortBtn = document.getElementById('catalog-sort-btn');
+        this.sortBtnInitContent = this.sortBtn.innerHTML;
+        document.querySelectorAll('.filter-menu li').forEach(item => {
+            item.addEventListener('click', () => {
+                this.sortBtn.innerHTML = item.innerHTML;
+                const sortOrder = item.dataset.sortOrder;
+                const sortDirection = item.dataset.sortDirection;
+                this.changeSortingOrder(sortOrder, sortDirection);
+                this.refreshResults();
+            });
+        });
+
+        this.searchButton = document.getElementById('search-button');
+        this.searchInput = document.getElementById('search-input');
+
+        this.handleSearch = () => {
+            const query = this.searchInput.value;
+            this.resetSortingOrder();
+            catalog.setQuery(query);
+        };
+
+        this.searchButton.addEventListener('click', this.handleSearch.bind(this));
+
+        this.searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                this.handleSearch();
+            }
+        });
+
         this.loadingHtml = document.getElementById('results-container').innerHTML;
     }
 
@@ -41,11 +71,20 @@ class Catalog extends PathsList {
         this.loadMoreAndDisplay();
     }
 
+    refreshResults() {
+        this.setQuery(this.query);
+    }
+
     changeSortingOrder(sortingOrder, sortingDirection) {
         this.sortingOrder = sortingOrder;
         this.sortingDirection = sortingDirection;
-        this.setQuery(this.query);
     }
+
+    resetSortingOrder() {
+        this.changeSortingOrder("none", "asc");
+        this.sortBtn.innerHTML = this.sortBtnInitContent;
+    }
+
 
     loadMoreAndDisplay() {
         this.loaded = this.#loadMore();
@@ -112,7 +151,7 @@ class Catalog extends PathsList {
         iconContainer.addEventListener('click', (e) => {
             const target = e.currentTarget;
             const cid = Number(target.dataset.cid);
-            showCompoundInfoPopup(cid);
+            this.showPopupNode(cid);
         });
         
         loadStructureSVG(cid, iconContainer);

@@ -38,30 +38,6 @@
 })();
 
 (function(){
-    const searchButton = document.getElementById('search-button');
-    const searchInput = document.getElementById('search-input');
-    const cancelCompute = document.getElementById('cancel-compute');
-    const submitButton = document.getElementById('submit-paths-button');
-
-    function handleSearch() {
-        const query = searchInput.value;
-        catalog.setQuery(query);
-    }
-
-    searchButton.addEventListener('click', handleSearch);
-
-    submitButton.addEventListener('click', graph.submit.bind(graph));
-
-    searchInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-            handleSearch();
-        }
-    });
-
-    //cancelCompute.addEventListener('click', hideLoading);
-})();
-
-(function(){
     document.addEventListener('click', (e) => {
         const dropdown = e.target.closest('.filter-dropdown');
         
@@ -77,16 +53,6 @@
             // Clicked outside — close all
             document.querySelectorAll('.filter-dropdown').forEach(d => d.classList.remove('active'));
         }
-    });
-
-    const sortBtn = document.getElementById('catalog-sort-btn');
-    document.querySelectorAll('.filter-menu li').forEach(item => {
-        item.addEventListener('click', () => {
-            sortBtn.innerHTML = item.innerHTML;
-            const sortOrder = item.dataset.sortOrder;
-            const sortDirection = item.dataset.sortDirection;
-            catalog.changeSortingOrder(sortOrder, sortDirection)
-        });
     });
 })();
 

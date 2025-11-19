@@ -9,6 +9,9 @@ class Graph {
 
         this.simulation = null;
         this.tooltip = null;
+
+        this.submitButton = document.getElementById('submit-paths-button');
+        this.submitButton.addEventListener('click', this.submit.bind(this));
     }
 
     async submit() {
@@ -470,14 +473,8 @@ class Graph {
         document.querySelectorAll('.reaction-svg-image').forEach(el => {
             el.onclick = () => {
                 const cid = Number(el.dataset.cid);
-                this.#showCompoundInfoPopup(cid);
+                this.catalog.showPopupNode(cid);
             };
         });
-    }
-
-
-    #showCompoundInfoPopup(cid) {
-        const name = this.catalog.compounds.get(cid).name;
-        this.catalog.showPopupNode(cid);
     }
 }
