@@ -1,0 +1,21 @@
+# Core scientific stack
+numpy
+scipy
+matplotlib
+
+# Database and CLI utilities
+psycopg2-binary
+rich
+requests
+
+# Chemistry/data tooling
+rdkit
+chempy
+pubchempy
+periodictable
+pdfplumber
+ord-schema
+protobuf
+
+# API client
+openai

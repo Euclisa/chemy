@@ -87,6 +87,9 @@ namespace chm
             throw std::invalid_argument("'str' argument must be non-empty string");
 
         std::string str_processed = this->preprocess(str);
+        if(str_processed.empty())
+            throw std::invalid_argument("'str' argument must contain non-space characters");
+
         size_t str_size = str_processed.size();
         size_t upper_bound = str_size < this->qgram_len ? 0 : str_size - this->qgram_len;
         roaring::Roaring64Map bitmap;
@@ -117,10 +120,13 @@ namespace chm
             throw std::invalid_argument("'str' argument must be non-empty string");
 
         std::string str_processed = this->preprocess(str);
+        if(str_processed.empty())
+            throw std::invalid_argument("'str' argument must contain non-space characters");
+
         size_t str_size = str_processed.size();
-        size_t upper_bound = str_size < this->qgram_len ? 0 : str_size - this->qgram_len + 1;
+        size_t upper_bound = str_size < this->qgram_len ? 0 : str_size - this->qgram_len;
         roaring::Roaring64Map bitmap;
-        for(size_t i = 0; i < upper_bound; ++i)
+        for(size_t i = 0; i <= upper_bound; ++i)
         {
             std::string qgram = str_processed.substr(i, this->qgram_len);
             auto qgram_bit_idx_it = this->qgram_to_bit_idx.find(qgram);
@@ -146,7 +152,7 @@ namespace chm
             size_t or_popcount = query_popcount + key_popcount - and_popcount;
 
             value_t value = this->entries[i].second;
-            double similarity = (double)and_popcount / (double)or_popcount; // 'or_popcount' is never zero
+            double similarity = or_popcount == 0 ? 0.0 : (double)and_popcount / (double)or_popcount;
             if(similarity >= this->similarity_thr && accepted_values.find(value) == accepted_values.end())
             {
                 results.push_back(std::make_pair(this->entries[i].second, similarity));

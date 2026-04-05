@@ -4,6 +4,7 @@
     align-items: center;
     margin: 0.1rem;
     gap: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .filter-button {
@@ -15,10 +16,6 @@
     padding: 0.5rem;
     max-height: 4rem;
     text-wrap: nowrap;
-}
-
-.filter-button.filter-button-filter {
-    aspect-ratio: 1 / 1;
 }
 
 .filter-button strong {
@@ -36,6 +33,7 @@
 .filter-dropdown {
   position: relative;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .filter-menu {
@@ -92,6 +90,7 @@
     box-shadow: 0 2px 8px rgba(184, 168, 217, 0.1);
     transition: border-color 0.2s, box-shadow 0.2s;
     flex-grow: 1;
+    min-width: 12rem;
 }
 
 .search-bar:focus-within {

@@ -11,7 +11,6 @@
 
 <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
 
-<script src="js/libs/fuse.min.js"></script>
 <script src="js/libs/d3.v7.min.js"></script>
 
 <title>Chemical Reactions Graph Explorer</title>
@@ -36,13 +35,10 @@
         <div id="loading-overlay">
             <i class="fa fa-spinner fa-spin"></i>
             <p id="loading-message">Loading...</p>
-            <button id="cancel-compute" style="display:none;">Cancel</button>
+            <button id="cancel-compute" type="button" style="display:none;">Cancel</button>
         </div>
         <div class="floating-bar bottom-floating-bar">
-            <button class="floating-btn", id="floating-btn-clear"><i class="fa-solid fa-eraser"></i></button>
-        </div>
-        <div class="floating-bar top-floating-bar">
-            <button class="floating-btn"><i class="fa-solid fa-info"></i></button>
+            <button class="floating-btn" id="floating-btn-clear" type="button" aria-label="Reset graph and path lists"><i class="fa-solid fa-eraser"></i></button>
         </div>
         <div class="main-window" id="main" role="main" aria-label="Main content area">
             <div class="main-window-content">
@@ -67,7 +63,7 @@
                         <span id="n-value">3</span>
                     </div>
                 </div>
-                <button class="submit-paths-btn" id="submit-paths-button">
+                <button class="submit-paths-btn" id="submit-paths-button" type="button" aria-label="Build graph">
                     <i class="fa fa-check"></i>
                 </button>
             </div>
@@ -90,7 +86,7 @@
                 <h3>Catalog</h3>
                 <div class="filters-container">
                     <div class="filter-dropdown">
-                        <button class="filter-button filter-button-sort" id="catalog-sort-btn">
+                        <button class="filter-button filter-button-sort" id="catalog-sort-btn" type="button">
                             <strong>Sort</strong>
                             <i class="fa fa-sort"></i>
                         </button>
@@ -115,12 +111,9 @@
                             </li>
                         </ul>
                     </div>
-                    <button class="filter-button filter-button-filter">
-                        <i class="fa-solid fa-filter"></i>
-                    </button>
                     <div class="search-bar">
                         <input type="text" id="search-input" placeholder="Search compounds..." />
-                        <button class="search-btn" id="search-button">
+                        <button class="search-btn" id="search-button" type="button" aria-label="Search compounds">
                             <i class="fas fa-search"></i>
                         </button>
                     </div>
@@ -134,7 +127,7 @@
         </div>
     </div>
 
-    <button class="toggle-stripe" id="toggle" aria-expanded="false" aria-controls="sidePanel" title="Toggle side panel">
+    <button class="toggle-stripe" id="toggle" type="button" aria-expanded="false" aria-controls="sidePanel" title="Toggle side panel">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d="M8 5l8 7-8 7"></path>
       </svg>

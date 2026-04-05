@@ -1,20 +1,21 @@
 import json
-import pdfplumber as pdfp
 import re
 import os
 
 from tempfile import NamedTemporaryFile
 
-from chems_properties import ChemsProperties
 
+class CRCParser:
 
+    def __init__(self, data_dir, compounds, store, logger):
+        self.compounds = compounds
+        self.store = store
+        self.logger = logger
 
-class ChemsCRC(ChemsProperties):
+        chems_properties_assets_dir = os.path.join(data_dir, 'assets', 'chems_properties')
+        chems_properties_dir = os.path.join(data_dir, 'chems_properties')
 
-    def __init__(self, data_dir):
-        super().__init__(data_dir)
-
-        self.crc_assests_dir = os.path.join(self.chems_properties_assets_dir, 'crc_handbook')
+        self.crc_assests_dir = os.path.join(chems_properties_assets_dir, 'crc_handbook')
 
         self.crc_flammability_pdf_fn = os.path.join(self.crc_assests_dir, 'flammability.pdf')
         self.crc_inorganic_constants_pdf_fn = os.path.join(self.crc_assests_dir, 'inorganic_constants.pdf')
@@ -23,21 +24,20 @@ class ChemsCRC(ChemsProperties):
         self.crc_inorganic_abbreviations_map_fn = os.path.join(self.crc_assests_dir, 'inorganic_abbreviations_map.txt')
         self.crc_organic_abbreviations_map_fn = os.path.join(self.crc_assests_dir, 'organic_abbreviations_map.txt')
 
-        self.crc_parsed_dir = os.path.join(self.chems_properties_dir, 'crc_handbook')
+        self.crc_parsed_dir = os.path.join(chems_properties_dir, 'crc_handbook')
         self.crc_inorganic_constants_fn = os.path.join(self.crc_parsed_dir, 'inorganic_constants.jsonl')
         self.crc_organic_constants_fn = os.path.join(self.crc_parsed_dir, 'organic_constants.jsonl')
         self.crc_flammability_fn = os.path.join(self.crc_parsed_dir, 'flammability.jsonl')
 
         self.crc_unmapped_names_fn = os.path.join(self.crc_parsed_dir, 'crc_unmapped_names.txt')
 
-        self._file_sorting_prefs[self.crc_flammability_fn] = 'name'
-        self._file_sorting_prefs[self.crc_inorganic_constants_fn] = 'name'
-        self._file_sorting_prefs[self.crc_organic_constants_fn] = 'name'
+        store.register_sorting(self.crc_flammability_fn, 'name')
+        store.register_sorting(self.crc_inorganic_constants_fn, 'name')
+        store.register_sorting(self.crc_organic_constants_fn, 'name')
 
         self.solubility_cats = {'insoluble', 'miscible', 'soluble', 'slightly soluble', 'very soluble'}
 
-
-    def __parse_page_raw(self, words, chars, column_headers_fields_map: dict, headers_cutoff_thr_bottom: float, headers_min_top: float, mandatory_field: str, row_min_height):
+    def __parse_page_raw(self, words, chars, column_headers_fields_map, headers_cutoff_thr_bottom, headers_min_top, mandatory_field, row_min_height):
         column_headers = list(column_headers_fields_map.keys())
         header_to_i = {h: i for i, h in enumerate(column_headers)}
         column_placeholder = 2**30
@@ -53,7 +53,7 @@ class ChemsCRC(ChemsProperties):
                 curr_value = column_left_x[header_to_i[text]]
                 if curr_value > w['x0']:
                     column_left_x[header_to_i[text]] = w['x0']
-        
+
         if any(x == column_placeholder for x in column_left_x):
             print(column_left_x)
             raise Exception("Failed to find all defined column headers")
@@ -63,22 +63,22 @@ class ChemsCRC(ChemsProperties):
         for top in tops[1:]:
             if top - rows_top_y[-1] > row_min_height:
                 rows_top_y.append(top)
-        
+
         table = [[[] for c in column_left_x] for r in rows_top_y]
 
         def binary_search_index(arr, value):
             left, right = 0, len(arr) - 1
             result = -1
-            
+
             while left <= right:
                 mid = left + (right - left) // 2
-                
+
                 if arr[mid] < value:
                     result = mid
                     left = mid + 1
                 else:
                     right = mid - 1
-            
+
             return result
 
         char_height_thr = 5.0
@@ -91,17 +91,16 @@ class ChemsCRC(ChemsProperties):
             row_i = binary_search_index(rows_top_y, c['bottom'])
             col_i = binary_search_index(column_left_x, c['x1'])
             table[row_i][col_i].append(c)
-        
+
         for row_i in range(len(table)):
             for col_i in range(len(table[row_i])):
                 table[row_i][col_i].sort(key=lambda c: (round(c['top'], 1), c['x0']))
                 table[row_i][col_i] = ''.join([c['text'] for c in table[row_i][col_i]])
-        
 
         def process_entry(entry):
             entry = entry.strip()
             return entry if entry else None
-        
+
         results = []
         for row_i in range(len(table)):
             curr_res = dict()
@@ -111,7 +110,6 @@ class ChemsCRC(ChemsProperties):
                     continue
                 curr_res[res_field] = process_entry(table[row_i][h_i])
             results.append(curr_res)
-        
 
         results_merged = []
         for entry in results:
@@ -124,18 +122,15 @@ class ChemsCRC(ChemsProperties):
 
             for field in entry.keys():
                 if entry[field] is not None and results_merged[-1][field] is not None:
-                    # Filtering invisible garbage text
                     if '.indb' in entry[field]:
                         continue
                     results_merged[-1][field] += f" {entry[field]}"
-        
 
         return results_merged
 
-
-
-
     def _parse_organic_constants_raw(self, out_fn, start_page=1, last_page=-1):
+        import pdfplumber as pdfp
+
         with pdfp.open(self.crc_organic_constants_pdf_fn) as pdf:
             page_i = start_page-1
             last_page_i = last_page if last_page != -1 else len(pdf.pages)
@@ -168,12 +163,12 @@ class ChemsCRC(ChemsProperties):
                     return
 
                 results += page_result
-            
-            self._write_jsonl(results, out_fn)
 
-
+            self.store.write_jsonl(results, out_fn)
 
     def _parse_inorganic_constants_raw(self, out_fn, start_page=1, last_page=-1):
+        import pdfplumber as pdfp
+
         with pdfp.open(self.crc_inorganic_constants_pdf_fn) as pdf:
             start_page_i = start_page-1
             page_i = start_page_i
@@ -185,13 +180,13 @@ class ChemsCRC(ChemsProperties):
                                         "CAS": 'cas',
                                         "Mol.": None,
                                         "Physical": 'physical_form',
-                                        "mp/°C": 'mp',
-                                        "bp/°C": 'bp',
+                                        "mp/\u00b0C": 'mp',
+                                        "bp/\u00b0C": 'bp',
                                         "Density": 'density',
                                         "g/100": 'solubility_aq',
                                         "Qualitative": 'solubility'
                                         }
-            
+
             results = []
             for page_i in range(start_page-1, last_page_i):
                 page = pdf.pages[page_i]
@@ -209,10 +204,11 @@ class ChemsCRC(ChemsProperties):
 
                 results += page_result
 
-            self._write_jsonl(results, out_fn)
-
+            self.store.write_jsonl(results, out_fn)
 
     def _parse_flammability_raw(self, out_fn, start_page=1, last_page=-1):
+        import pdfplumber as pdfp
+
         with pdfp.open(self.crc_flammability_pdf_fn) as pdf:
             start_page_i = start_page-1
             page_i = start_page_i
@@ -225,7 +221,7 @@ class ChemsCRC(ChemsProperties):
                                         "fl.": "flash_limits",
                                         "it/\u00b0C": 'ignition_temp'
                                         }
-            
+
             results = []
             for page_i in range(start_page-1, last_page_i):
                 page = pdf.pages[page_i]
@@ -248,8 +244,7 @@ class ChemsCRC(ChemsProperties):
 
                 results += page_result
 
-            self._write_jsonl(results, out_fn)
-    
+            self.store.write_jsonl(results, out_fn)
 
     def __clean_solubility(self, sol_str, ab_map):
         sol_str = re.sub(r',;', '', sol_str)
@@ -266,9 +261,8 @@ class ChemsCRC(ChemsProperties):
                     if curr_sol_cat is None:
                         return None
                     cleaned[word] = curr_sol_cat
-        
-        return cleaned
 
+        return cleaned
 
     def __clean_physical_form(self, phys_str, ab_map):
         phys_str = re.sub(r'\s+', ' ', phys_str)
@@ -278,9 +272,8 @@ class ChemsCRC(ChemsProperties):
             if word in ab_map:
                 word = word.replace(word, ab_map[word])
             cleaned += word
-        
-        return cleaned
 
+        return cleaned
 
     def __check_approx(self, string):
         return True if re.search(r'[\u2248<>]', string) else False
@@ -293,16 +286,14 @@ class ChemsCRC(ChemsProperties):
 
         return cleaned if dec or (value is not None) else None
 
-
     def __clean_bp(self, bp_str):
         sub = 'sub' in bp_str or 'sp' in bp_str
         dec = 'dec' in bp_str
-        approx =self. __check_approx(bp_str)
+        approx = self.__check_approx(bp_str)
         value = self.__clean_float_value(bp_str)
         cleaned = {'sublimes': sub, 'decomposes': dec, 'value': value, 'approx': approx}
 
         return cleaned if dec or sub or (value is not None) else None
-
 
     def __clean_float_value(self, val_str):
         value_match = re.findall(r'-?\d+(?:\.\d+)?', val_str)
@@ -310,9 +301,8 @@ class ChemsCRC(ChemsProperties):
             value = None
         else:
             value = float(value_match[0])
-        
-        return value
 
+        return value
 
     def __clean_unicode(self, string):
         if not string:
@@ -327,7 +317,6 @@ class ChemsCRC(ChemsProperties):
 
         return ''.join(map(lambda c: unicode_map[c] if c in unicode_map else c, string))
 
-
     def __clean_flash_point(self, fp_str):
         fp_str = self.__clean_unicode(fp_str)
         approx = self.__check_approx(fp_str)
@@ -336,13 +325,11 @@ class ChemsCRC(ChemsProperties):
 
         return cleaned if value is not None else None
 
-
     def __clean_flash_limits(self, fl_str):
         fl_str = self.__clean_unicode(fl_str)
         fl_str = re.sub(r'\s+', '', fl_str)
 
         return fl_str
-
 
     def __clean_ignition_temp(self, it_str):
         approx = self.__check_approx(it_str)
@@ -351,12 +338,11 @@ class ChemsCRC(ChemsProperties):
 
         return cleaned if value is not None else None
 
-
     def _clean_organic_constants(self, input_fn, output_fn=None):
         if output_fn is None:
             output_fn = input_fn
 
-        entries = self._load_jsonl(input_fn)
+        entries = self.store.load_jsonl(input_fn)
 
         with open(self.crc_organic_abbreviations_map_fn) as f:
             ab_map = [x.split('|') for x in f.read().strip().split('\n')]
@@ -368,19 +354,19 @@ class ChemsCRC(ChemsProperties):
 
             if entry['physical_form']:
                 entry['physical_form'] = self.__clean_physical_form(entry['physical_form'], ab_map)
-            
+
             if entry['solubility']:
                 entry['solubility'] = self.__clean_solubility(entry['solubility'], ab_map)
-            
+
             if entry['mp']:
                 entry['mp'] = self.__clean_mp(entry['mp'])
 
             if entry['bp']:
                 entry['bp'] = self.__clean_bp(entry['bp'])
-            
+
             if entry['density']:
                 entry['density'] = self.__clean_float_value(entry['density'])
-            
+
             if entry['refractive_index']:
                 entry['refractive_index'] = self.__clean_float_value(entry['refractive_index'])
 
@@ -389,15 +375,13 @@ class ChemsCRC(ChemsProperties):
 
             entry.pop('ind')
 
-
-        self._write_jsonl(entries, output_fn)
-
+        self.store.write_jsonl(entries, output_fn)
 
     def _clean_inorganic_constants(self, input_fn, output_fn=None):
         if output_fn is None:
             output_fn = input_fn
 
-        entries = self._load_jsonl(input_fn)
+        entries = self.store.load_jsonl(input_fn)
 
         with open(self.crc_inorganic_abbreviations_map_fn) as f:
             ab_map = [x.split('|') for x in f.read().strip().split('\n')]
@@ -409,19 +393,19 @@ class ChemsCRC(ChemsProperties):
 
             if entry['physical_form']:
                 entry['physical_form'] = self.__clean_physical_form(entry['physical_form'], ab_map)
-            
+
             if entry['solubility']:
                 entry['solubility'] = self.__clean_solubility(entry['solubility'], ab_map)
-            
+
             if entry['mp']:
                 entry['mp'] = self.__clean_mp(entry['mp'])
 
             if entry['bp']:
                 entry['bp'] = self.__clean_bp(entry['bp'])
-            
+
             if entry['density']:
                 entry['density'] = self.__clean_float_value(entry['density'])
-            
+
             if entry['solubility_aq']:
                 entry['solubility_aq'] = self.__clean_float_value(entry['solubility_aq'])
 
@@ -429,23 +413,20 @@ class ChemsCRC(ChemsProperties):
 
             entry.pop('ind')
 
-
-        self._write_jsonl(entries, output_fn)
-
-
+        self.store.write_jsonl(entries, output_fn)
 
     def _map_inorganic_organic_constants(self, input_fn, output_fn=None):
         if output_fn is None:
             output_fn = input_fn
 
-        entries = self._load_jsonl(input_fn)
+        entries = self.store.load_jsonl(input_fn)
 
         parsed_entries = []
         processed_cids = set()
         for entry in entries:
-            name = self._normalize_chem_name(entry['name'], is_clean=True)
+            name = self.compounds.normalize_chem_name(entry['name'], is_clean=True)
             cas = entry['cas']
-            cid = self.cas_cid_map[cas] if cas in self.cas_cid_map else self.name_cid_map.get(name)
+            cid = self.compounds.cas_cid_map[cas] if cas in self.compounds.cas_cid_map else self.compounds.name_cid_map.get(name)
             if cid is None or cid in processed_cids:
                 continue
 
@@ -455,10 +436,10 @@ class ChemsCRC(ChemsProperties):
                 continue
 
             for solvent, sol_cat in solubility_raw.items():
-                norm_solvent = self._normalize_chem_name(solvent, is_clean=True)
-                if norm_solvent not in self.name_cid_map:
+                norm_solvent = self.compounds.normalize_chem_name(solvent, is_clean=True)
+                if norm_solvent not in self.compounds.name_cid_map:
                     continue
-                solvent_cid = self.name_cid_map[norm_solvent]
+                solvent_cid = self.compounds.name_cid_map[norm_solvent]
                 if sol_cat in self.solubility_cats:
                     solubility_parsed.append({"solvent": solvent, "cid": solvent_cid, 'solubility': sol_cat})
 
@@ -467,44 +448,40 @@ class ChemsCRC(ChemsProperties):
 
             processed_cids.add(cid)
             parsed_entries.append(entry)
-        
-        self._write_jsonl(parsed_entries, output_fn)
 
-
+        self.store.write_jsonl(parsed_entries, output_fn)
 
     def _clean_flammability(self, input_fn, output_fn=None):
         if output_fn is None:
             output_fn = input_fn
 
-        entries = self._load_jsonl(input_fn)
-        
+        entries = self.store.load_jsonl(input_fn)
+
         for entry in entries:
             if entry['flash_point']:
                 entry['flash_point'] = self.__clean_flash_point(entry['flash_point'])
-            
+
             if entry['flash_limits']:
                 entry['flash_limits'] = self.__clean_flash_limits(entry['flash_limits'])
-            
+
             if entry['ignition_temp']:
                 entry['ignition_temp'] = self.__clean_ignition_temp(entry['ignition_temp'])
 
             entry['name'] = self.__clean_unicode(entry['name'])
-        
 
-        self._write_jsonl(entries, output_fn)
-    
+        self.store.write_jsonl(entries, output_fn)
 
     def _map_flammability(self, input_fn, output_fn=None):
         if output_fn is None:
             output_fn = input_fn
 
-        entries = self._load_jsonl(input_fn)
+        entries = self.store.load_jsonl(input_fn)
 
         parsed_entries = []
         processed_cids = set()
         for entry in entries:
-            name = self._normalize_chem_name(entry['name'], is_clean=True)
-            cid = self.name_cid_map.get(name)
+            name = self.compounds.normalize_chem_name(entry['name'], is_clean=True)
+            cid = self.compounds.name_cid_map.get(name)
             if cid is None or cid in processed_cids:
                 continue
 
@@ -512,12 +489,11 @@ class ChemsCRC(ChemsProperties):
 
             processed_cids.add(cid)
             parsed_entries.append(entry)
-        
-        self._write_jsonl(parsed_entries, output_fn)
-    
+
+        self.store.write_jsonl(parsed_entries, output_fn)
 
     def parse_crc(self):
-        with NamedTemporaryFile(suffix='.jsonl', delete=True) as tmp, self.no_warnings():
+        with NamedTemporaryFile(suffix='.jsonl', delete=True) as tmp, self.logger.no_warnings():
             tmp_fn = tmp.name
             self._parse_inorganic_constants_raw(tmp_fn)
             self._clean_inorganic_constants(tmp_fn)
@@ -530,19 +506,13 @@ class ChemsCRC(ChemsProperties):
             self._parse_flammability_raw(tmp_fn)
             self._clean_flammability(tmp_fn)
             self._map_flammability(tmp_fn, self.crc_flammability_fn)
-    
 
     def map_crc_chems_to_cids(self):
-        names = [x['name'] for x in self._load_jsonl(self.crc_inorganic_constants_fn)]
-        names += [x['name'] for x in self._load_jsonl(self.crc_organic_constants_fn)]
+        names = [x['name'] for x in self.store.load_jsonl(self.crc_inorganic_constants_fn)]
+        names += [x['name'] for x in self.store.load_jsonl(self.crc_organic_constants_fn)]
 
         with open(self.crc_unmapped_names_fn, 'w') as f:
             for name in names:
-                norm_name = self._normalize_chem_name(name, is_clean=True)
-                if norm_name not in self.name_cid_map:
+                norm_name = self.compounds.normalize_chem_name(name, is_clean=True)
+                if norm_name not in self.compounds.name_cid_map:
                     f.write(f"{norm_name}||{name}||0" + '\n')
-
-
-if __name__ == "__main__":
-    crc = ChemsCRC('data/')
-    crc.parse_crc()

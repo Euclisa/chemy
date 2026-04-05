@@ -11,23 +11,25 @@ import random
 import numpy as np
 from copy import deepcopy
 
-from chems_thermo import ChemsThermo
-
 KCAL_PER_HARTREE = 627.5094740631
 
 
-class ChemsThermoXtb(ChemsThermo):
-    def __init__(self, data_dir):
-        super().__init__(data_dir)
+class ThermoXtbOps:
+    def __init__(self, data_dir, compounds, thermo, reactions, store, logger):
+        self.compounds = compounds
+        self.thermo = thermo
+        self.reactions = reactions
+        self.store = store
+        self.logger = logger
 
-        self.xtb_thermo_dir = os.path.join(self.thermo_dir, 'xtb')
+        thermo_dir = os.path.join(data_dir, 'thermo')
+        self.xtb_thermo_dir = os.path.join(thermo_dir, 'xtb')
 
         self.chems_thermo_xtb_fn = os.path.join(self.xtb_thermo_dir, 'chems_thermo_xtb.jsonl')
         self.reactions_thermo_xtb_fn = os.path.join(self.xtb_thermo_dir, 'reactions_thermo_xtb.jsonl')
 
-        self._file_sorting_prefs[self.chems_thermo_xtb_fn] = 'cid'
-        self._file_sorting_prefs[self.reactions_thermo_xtb_fn] = 'rid'
-    
+        store.register_sorting(self.chems_thermo_xtb_fn, 'cid')
+        store.register_sorting(self.reactions_thermo_xtb_fn, 'rid')
 
     def get_structures(self, input_sdf, out_fn):
         entries = []
@@ -43,18 +45,15 @@ class ChemsThermoXtb(ChemsThermo):
                 content = '\n'.join(entry_lines)
                 f.write(json.dumps({'cid': cid, 'sdf': content}) + '\n')
 
-
-
     def __generate_conformers(self, mol, num_confs=20):
         mol = Chem.AddHs(mol)
-        
+
         AllChem.EmbedMultipleConfs(mol, numConfs=num_confs, pruneRmsThresh=0.1)
-        
+
         for conf in mol.GetConformers():
             AllChem.UFFOptimizeMolecule(mol, confId=conf.GetId())
-        
-        return mol
 
+        return mol
 
     def __conf_to_xyz(self, mol, conf=None):
         if not conf:
@@ -71,9 +70,8 @@ class ChemsThermoXtb(ChemsThermo):
         for conf in mol.GetConformers():
             xyz_str = self.__conf_to_xyz(mol, conf)
             confs_xyz.append(xyz_str)
-        
-        return confs_xyz
 
+        return confs_xyz
 
     def convert_to_xyz_rdkit(self, input_file, output_dir):
         with open(input_file) as f:
@@ -81,7 +79,7 @@ class ChemsThermoXtb(ChemsThermo):
 
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
-        
+
         for i, entry in enumerate(entries):
             cid = entry['cid']
             out_file_path = os.path.join(output_dir, f"{cid}.json")
@@ -93,23 +91,19 @@ class ChemsThermoXtb(ChemsThermo):
                 if mol is None:
                     print(f"Failed to read SDF for CID {entry['cid']}")
                     continue
-                
-                # Ensure 3D coordinates
+
                 if mol.GetNumConformers() == 0:
                     AllChem.EmbedMolecule(mol)
 
                 mol = self.__generate_conformers(mol)
                 confs_xyz = self.__get_conformers_xyz(mol)
-                
+
                 with open(out_file_path, 'w') as f:
                     f.write(json.dumps(confs_xyz, indent=2) + '\n')
 
                 print(f"({i+1}/{len(entries)}) Generated {len(confs_xyz)} conformers for {entry['cid']}")
             except Exception as e:
                 print(f"Failed CID {entry['cid']}: {e}")
-
-
-
 
     def __optimize_structure_crest(self, crest_cmd, file_xyz, work_dir, chem, result_path):
         mol = Chem.MolFromSmiles(chem['smiles'])
@@ -126,7 +120,7 @@ class ChemsThermoXtb(ChemsThermo):
             AllChem.MMFFOptimizeMolecule(mol)
         else:
             AllChem.UFFOptimizeMolecule(mol)
-        
+
         mol_xyz = self.__conf_to_xyz(mol)
 
         file_xyz.write(mol_xyz.encode())
@@ -135,7 +129,6 @@ class ChemsThermoXtb(ChemsThermo):
         def __run_crest_opt(crest_cmd, filename_xyz, work_dir, timeout):
             proc = subprocess.Popen([crest_cmd, filename_xyz, '--opt'], cwd=work_dir, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
-                # For some reason crest stalls in some cases
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 proc.kill()
@@ -149,7 +142,7 @@ class ChemsThermoXtb(ChemsThermo):
             proc = __run_crest_opt(crest_cmd, file_xyz.name, work_dir, timeout)
             if proc.returncode == 0 and os.path.exists(result_path):
                 return True
-        
+
         def get_perturbed_mol(mol):
             perturbed_mol = deepcopy(mol)
             noise_std = 0.25
@@ -159,9 +152,9 @@ class ChemsThermoXtb(ChemsThermo):
                 perturbation = np.random.normal(0, noise_std, size=3)
                 new_pos = pos + perturbation
                 conf.SetAtomPosition(i, new_pos)
-            
+
             return perturbed_mol
-        
+
         perturb_tries_num = 5
         for try_i in range(perturb_tries_num):
             perturbed_mol = get_perturbed_mol(mol)
@@ -176,10 +169,6 @@ class ChemsThermoXtb(ChemsThermo):
                 return True
 
         return False
-        
-
-        
-
 
     def generate_missing_structures(self, conformers_dir, chems_jsonl, crest_cmd='crest', obabel_cmd='obabel'):
         with open(chems_jsonl) as f:
@@ -201,7 +190,7 @@ class ChemsThermoXtb(ChemsThermo):
                     if not status:
                         print(f"Failed to optimize structure for {cid} ('{name}')")
                         continue
-                    
+
                     result_sdf_path = os.path.join(work_dir, 'mol.sdf')
                     proc = subprocess.Popen([obabel_cmd, result_path, '-O', result_sdf_path, '--gen3d'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=work_dir)
                     proc.wait()
@@ -220,28 +209,22 @@ class ChemsThermoXtb(ChemsThermo):
                 out_fn = os.path.join(conformers_dir, f"{cid}.json")
                 with open(out_fn, 'w') as f:
                     f.write(json.dumps(confs_xyz, indent=2) + '\n')
-                
-                print(f"Generated {len(confs_xyz)} for {cid} ('{name}')")
 
+                print(f"Generated {len(confs_xyz)} for {cid} ('{name}')")
 
             except Exception as e:
                 print(f"Failed to generate conformers for {cid} ('{name}'): {e}")
 
-            
-
-
-
     def __compute_boltzmann_average(self, results):
         results_num = len(results)
         Gt_min = min([x['Gt'] for x in results])
-        factor = 0.000944185024051871   # # k*T / <1 hartree>
+        factor = 0.000944185024051871
         coeffs = [e**(-(x['Gt']-Gt_min)/factor) for x in results]
 
         Ht_av = sum([coeffs[i]*results[i]['Ht'] for i in range(results_num)])/sum(coeffs)
         Gt_av = sum([coeffs[i]*results[i]['Gt'] for i in range(results_num)])/sum(coeffs)
 
         return Ht_av, Gt_av
-
 
     def __clear_dir(self, dir_name):
         files = glob.glob(os.path.join(dir_name, "*"))
@@ -269,14 +252,6 @@ class ChemsThermoXtb(ChemsThermo):
 
                         self.__clear_dir(work_dir)
 
-                    def convert_exponential(value):
-                        mantiss, power = value.split('E')
-                        mantiss = float(mantiss)
-                        power = int(power)
-
-                        return mantiss * 10**power
-                        
-                    
                     energy_match = re.findall(r'(?<=TOTAL ENERGY).+?(?= Eh)', result)
                     if not energy_match:
                         raise Exception(f"not found energy")
@@ -294,20 +269,19 @@ class ChemsThermoXtb(ChemsThermo):
                         raise Exception(f"not found Gt")
 
                     Gt = float(Gt_match[0].strip())
-                    
+
                     results.append({'Ht': Ht, 'Gt': Gt, 'E': energy})
                 except Exception as e:
                     pass
 
                 conf_i += 1
-        
+
         if not results:
             return None
-        
-        Ht, Gt = self.__compute_boltzmann_average(results)
-        
-        return len(results), Ht, Gt
 
+        Ht, Gt = self.__compute_boltzmann_average(results)
+
+        return len(results), Ht, Gt
 
     def run_xtb(self, conformers_dir, output_file, order_file=None, xtb_cmd='xtb'):
         os.environ['MKL_NUM_THREADS'] = "3"
@@ -319,7 +293,7 @@ class ChemsThermoXtb(ChemsThermo):
                 processed_cids = set([json.loads(x)['cid'] for x in f.read().strip().split('\n')])
         else:
             processed_cids = set()
-        
+
         if order_file:
             with open(order_file) as f:
                 order = [f"{x}.json" for x in json.loads(f.read())]
@@ -352,13 +326,11 @@ class ChemsThermoXtb(ChemsThermo):
                     f_out.write(json.dumps({'cid': cid, 'Ht_Eh': None, 'Gt_Eh': None}) + '\n')
                     f_out.flush()
                     print(f"Failed to compute enthalpy for {cid}")
-                    
-
 
     def delete_cids(self):
         with open('3d_structures.jsonl') as f:
             cids_to_keep = set([f"{json.loads(x)['cid']}.json" for x in f.read().strip().split('\n')])
-        
+
         filenames = os.listdir('conformers/')
         fns_to_remove = list(filter(lambda x: x not in cids_to_keep, filenames))
         print(f"Submitted {len(fns_to_remove)} for deletion")
@@ -367,23 +339,21 @@ class ChemsThermoXtb(ChemsThermo):
             os.remove(path)
         print("Done")
 
-
     def clear_null_enthalpy_entries(self, filename):
         with open(filename) as f:
             entries = [json.loads(x) for x in f.read().strip().split('\n')]
-        
+
         with open(filename, 'w') as f:
             for entry in entries:
                 if entry['Ht_Eh'] is not None:
                     f.write(json.dumps(entry) + '\n')
 
+    def compute_formation_values(self, out_fn):
+        xtb_thermo_entries = self.store.load_jsonl(self.chems_thermo_xtb_fn)
 
-    def compute_formation_values(self, out_fn):        
-        xtb_thermo_entries = self._load_jsonl(self.chems_thermo_xtb_fn)
-        
         cid_to_Ht = {th['cid']: th['Ht_Eh'] * KCAL_PER_HARTREE for th in xtb_thermo_entries if th['Ht_Eh'] is not None}
         cid_to_Gt = {th['cid']: th['Gt_Eh'] * KCAL_PER_HARTREE for th in xtb_thermo_entries if th['Gt_Eh'] is not None}
-        
+
         with open(out_fn, 'w') as f_out:
             for entry in xtb_thermo_entries:
                 if entry['Ht_Eh'] is None:
@@ -393,44 +363,24 @@ class ChemsThermoXtb(ChemsThermo):
 
                 entry['Ht_Eh'] *= KCAL_PER_HARTREE
                 entry['Gt_Eh'] *= KCAL_PER_HARTREE
-                dHf = self._compute_formation_value(cid, entry['Ht_Eh'], cid_to_Ht)
-                dGf = self._compute_formation_value(cid, entry['Gt_Eh'], cid_to_Gt)
-                
+                dHf = self.thermo.compute_formation_value(cid, entry['Ht_Eh'], cid_to_Ht)
+                dGf = self.thermo.compute_formation_value(cid, entry['Gt_Eh'], cid_to_Gt)
+
                 if dHf is None or dGf is None:
-                    self.log_warn(f"Failed to compute formation thermo values for CID: {cid}")
+                    self.logger.log_warn(f"Failed to compute formation thermo values for CID: {cid}")
                     continue
 
                 out_entry = {'cid': cid, 'Ht': entry['Ht_Eh'], 'Gt': entry['Gt_Eh'], 'dHf': dHf, 'dGf': dGf, 'T': 298.15}
                 f_out.write(json.dumps(out_entry) + '\n')
 
-
-
-    def print_thermo(self, thermo_fn, n=100):
-        with open(thermo_fn) as f:
-            thermo = [json.loads(x) for x in f.read().strip().split('\n')]
-
-        with open('data/chems/chems.jsonl') as f:
-            chems = [json.loads(x) for x in f.read().strip().split('\n')]
-        
-        cid_to_chem = {chem['cid']: chem for chem in chems}
-        
-        for entry in thermo[:n]:
-            name = cid_to_chem[entry['cid']]['cmpdname']
-            dHf = entry['dHf']
-            dGf = entry['dGf']
-            print(f"{name}: dHf={dHf}; dGf={dGf}")
-    
-
-    def compute_reactions_thermo_xtb(self):
-        thermo = self._load_jsonl(self.chems_thermo_xtb_fn)
+    def compute_reactions_thermo_xtb(self, parsed_reactions_balanced):
+        thermo = self.store.load_jsonl(self.chems_thermo_xtb_fn)
         cid_to_thermo = {th['cid']: th for th in thermo}
 
-        KCAL_PER_HARTREE = 627.5094740631
-
         with open(self.reactions_thermo_xtb_fn, 'w') as f:
-            for react in self.parsed_reactions_balanced:
-                balance = self.reactions_balance[react['rid']]
-                
+            for react in parsed_reactions_balanced:
+                balance = self.reactions.reactions_balance[react['rid']]
+
                 def compute_value(value):
                     def compute_side(side, value):
                         res = 0
@@ -440,35 +390,19 @@ class ChemsThermoXtb(ChemsThermo):
                                 return None
 
                             res += balance[cid] * cid_to_thermo[entry['cid']][value]
-                        
+
                         return res
 
                     v_r = compute_side('reagents', value)
                     v_p = compute_side('products', value)
 
                     return None if v_r is None or v_p is None else (v_p - v_r) * KCAL_PER_HARTREE
-                    
-                react_str = self._get_reaction_as_str(react)
+
+                react_str = self.reactions.get_reaction_as_str(react)
 
                 dH = compute_value('Ht_Eh')
                 dG = compute_value('Gt_Eh')
                 if dH is None and dG is None:
                     continue
-                
+
                 f.write(json.dumps({'rid': react['rid'], 'react_str': react_str, 'dH': dH, 'dG': dG}) + '\n')
-        
-
-
-
-if __name__ == "__main__":
-    thermo = ChemsThermoXtb('data/')
-    thermo.compute_formation_values('out_xtb.jsonl')
-
-    #get_structures('3d.sdf', '3d_structures.jsonl')
-    #convert_to_xyz_rdkit('3d_structures.jsonl', 'conformers/')
-    #generate_missing_structures('conformers', 'data/chems/chems.jsonl', crest_cmd='/home/me/Downloads/crest/crest')
-    #run_xtb('conformers/', 'data/thermo/chems_thermo_xtb_test.jsonl', order_file='data/misc/commonness_sorted_cids.json', xtb_cmd='/home/me/Downloads/xtb-dist/bin/xtb')
-    #delete_cids()
-    #clear_null_enthalpy_entries('chems_thermo_xtb.jsonl')
-    #compute_formation_values('data/thermo/chems_thermo_xtb.jsonl', 'data/thermo/chems_thermo.jsonl')
-    #print_thermo('data/thermo/chems_thermo.jsonl', n=1000)

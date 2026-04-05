@@ -1,32 +1,4 @@
-let chemsData = [];
-let edgesData = [];
-let reactionsData = [];
-let fuse = null;
-const RESULTS_PER_PAGE = 200;
-let selectedCIDs = new Set();
-let cidToCompound = new Map();
 let originalMainContent = '';
-let hoverTimeout;
-let selectedLevel = 1;
-let graph_reverse = new Map()
-let edgeToReactionID = new Map();
-let RIDToReaction = new Map();
-let currentEdges = new Set();
-let secondaryNodes = new Set();
-let directedEdges = new Set();
-let backgroundCids;
-let cidToDescription = new Map();
-let ridToDescription = new Map();
-let commonnesSortedCids = [];
-let complexitySortedCids = [];
-let curiositySortedCids = [];
-let currentSortingOrder;
-let cidToEdges = new Map();
-let cidToCompoundProperties = new Map();
-let cidToHazards = new Map();
-
-let sortingOrder = "none";
-let currentPage = 0;
 let compounds = new Compounds();
 let reactions = new Reactions();
 let popup = new Popup();
@@ -39,10 +11,9 @@ async function initializeData() {
     showLoading('Loading data...');
     const resultsContainer = document.getElementById('results-container');
     originalMainContent = document.getElementById('main').innerHTML;
-    
+
     try {
         catalog.setQuery();
-        
     } catch (error) {
         console.error('Error initializing data:', error);
         resultsContainer.innerHTML = '<div class="no-results">Error loading compound data</div>';
@@ -59,7 +30,7 @@ async function initializeData() {
 
     const updateMaxPaths = () => {
         kValue.textContent = kSlider.value === '11' ? 'All' : kSlider.value;
-        graph.max_paths = kValue.textContent === 'All' ? 99999 : Number(kValue.textContent)
+        graph.max_paths = kValue.textContent === 'All' ? 99999 : Number(kValue.textContent);
     };
 
     updateMaxPaths();
@@ -72,7 +43,7 @@ async function initializeData() {
         nValue.textContent = nSlider.value;
         graph.max_cost = Number(nSlider.value);
     };
-    
+
     updateMaxCost();
     nSlider.addEventListener('input', updateMaxCost);
 }

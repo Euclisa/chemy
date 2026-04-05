@@ -13,6 +13,7 @@
 #include <fmt/core.h>
 #include <nlohmann/json.hpp>
 #include <mutex>
+#include <unordered_set>
 
 #include "fuzzy_map.hpp"
 #include "misc.hpp"
@@ -42,7 +43,7 @@ namespace chm
     protected:
         fs::path DATA_DIR_PATH;
         fs::path DB_INFO_FULL_PATH;
-        fs::path UI_DIR_PATH, STRUCTURES_DIR_UI_PATH;
+        fs::path UI_DIR_PATH, STRUCTURES_DIR_PATH, STRUCTURES_DIR_UI_PATH;
 
         uint32_t PAGE_SIZE = 100;
 
@@ -59,6 +60,9 @@ namespace chm
     private:
         pqxx::connection *conn{nullptr};
         std::mutex conn_mutex;
+        std::mutex fingerprints_mutex;
+        std::mutex compound_infos_mutex;
+        std::mutex reaction_cache_mutex;
 
         using fingerprints_t = std::unordered_map<cid_t, ecfp4_t>;
         fingerprints_t fingerprints;
@@ -142,7 +146,7 @@ namespace chm
     {
         std::lock_guard<std::mutex> lock(this->conn_mutex);
         pqxx::work tx(*this->conn);
-        pqxx::result result = tx.exec_prepared(prepared, std::forward<Args>(args)...);;
+        pqxx::result result = tx.exec(pqxx::prepped{prepared}, pqxx::params{std::forward<Args>(args)...});
         tx.commit();
         return result;
     }
@@ -150,14 +154,35 @@ namespace chm
 
     template<typename Iterable>
     void chm::App::retrieve_fingerprints(Iterable cids)
-    {    
-        std::string cids_str = entries_to_sql_list(cids, this->fingerprints);
+    {
+        std::vector<cid_t> missing_cids;
+        {
+            std::lock_guard<std::mutex> lock(this->fingerprints_mutex);
+            for (const cid_t cid : cids)
+            {
+                if (this->fingerprints.find(cid) == this->fingerprints.end())
+                    missing_cids.push_back(cid);
+            }
+        }
+
+        if (missing_cids.empty())
+            return;
+
+        std::unordered_set<cid_t> no_blacklist;
+        std::string cids_str = entries_to_sql_list(missing_cids, no_blacklist);
         pqxx::result res{this->run_pqxx_request_params_prepared("compound_fingerprints", cids_str)};
 
+        fingerprints_t loaded_fingerprints;
         for(const auto& row : res)
         {
             cid_t cid = row[0].as<cid_t>();
-            this->fingerprints[cid] = this->parse_pqxx_row_fingerprint(row);
+            loaded_fingerprints[cid] = this->parse_pqxx_row_fingerprint(row);
+        }
+
+        std::lock_guard<std::mutex> lock(this->fingerprints_mutex);
+        for (auto& [cid, fingerprint] : loaded_fingerprints)
+        {
+            this->fingerprints.emplace(cid, std::move(fingerprint));
         }
     }
 
@@ -165,19 +190,33 @@ namespace chm
     template<typename Iterable>
     void chm::App::retrieve_compound_infos(Iterable cids)
     {
-        std::string cids_str = entries_to_sql_list(cids, this->compound_infos);
+        std::vector<cid_t> missing_cids;
+        {
+            std::lock_guard<std::mutex> lock(this->compound_infos_mutex);
+            for (const cid_t cid : cids)
+            {
+                if (this->compound_infos.find(cid) == this->compound_infos.end())
+                    missing_cids.push_back(cid);
+            }
+        }
 
-        compound_infos_t compound_infos;
+        if (missing_cids.empty())
+            return;
+
+        std::unordered_set<cid_t> no_blacklist;
+        std::string cids_str = entries_to_sql_list(missing_cids, no_blacklist);
+
+        compound_infos_t loaded_infos;
 
         pqxx::result cmpd_rows{this->run_pqxx_request_params_prepared("compounds", cids_str)};
         for(const auto& row : cmpd_rows)
         {
             cid_t cid = row[0].as<cid_t>();
-            compound_infos[cid]["cid"] = cid;
-            compound_infos[cid]["name"] = row[1].as<std::string>();
-            compound_infos[cid]["smiles"] = row[2].as<std::string>();
-            compound_infos[cid]["organic"] = row[3].as<bool>();
-            compound_infos[cid]["wiki"] = row[4].is_null() ? "" : row[4].as<std::string>();
+            loaded_infos[cid]["cid"] = cid;
+            loaded_infos[cid]["name"] = row[1].as<std::string>();
+            loaded_infos[cid]["smiles"] = row[2].as<std::string>();
+            loaded_infos[cid]["organic"] = row[3].as<bool>();
+            loaded_infos[cid]["wiki"] = row[4].is_null() ? "" : row[4].as<std::string>();
         }
 
         pqxx::result prop_rows{this->run_pqxx_request_params_prepared("compound_properties", cids_str)};
@@ -186,38 +225,38 @@ namespace chm
             cid_t cid = row[0].as<cid_t>();
             std::string prop_name = row[1].as<std::string>();
             std::string prop_value = row[2].as<std::string>();
-            compound_infos[cid]["properties"].push_back({{"property_name", prop_name}, {"property_value", prop_value}});
+            loaded_infos[cid]["properties"].push_back({{"property_name", prop_name}, {"property_value", prop_value}});
         }
 
         pqxx::result picts_rows{this->run_pqxx_request_params_prepared("compound_pictograms", cids_str)};
         for(const auto& row : picts_rows)
         {
             cid_t cid = row[0].as<cid_t>();
-            compound_infos[cid]["pictograms"].push_back(row[1].as<std::string>());
+            loaded_infos[cid]["pictograms"].push_back(row[1].as<std::string>());
         }
         
         pqxx::result nfpa_rows{this->run_pqxx_request_params_prepared("compound_nfpa", cids_str)};
-        nlohmann::json nfpa;
         for(const auto& row : nfpa_rows)
         {
             cid_t cid = row[0].as<cid_t>();
             if(!row[1].is_null())
-                compound_infos[cid]["nfpa"]["health"] = row[1].as<std::string>();
+                loaded_infos[cid]["nfpa"]["health"] = row[1].as<std::string>();
             if(!row[2].is_null())
-                compound_infos[cid]["nfpa"]["flammability"] = row[2].as<std::string>();
+                loaded_infos[cid]["nfpa"]["flammability"] = row[2].as<std::string>();
             if(!row[3].is_null())
-                compound_infos[cid]["nfpa"]["instability"] = row[3].as<std::string>();
+                loaded_infos[cid]["nfpa"]["instability"] = row[3].as<std::string>();
         }
 
         pqxx::result descr_rows{this->run_pqxx_request_params_prepared("compound_descriptions", cids_str)};
         for(const auto& row : descr_rows)
         {
             cid_t cid = row[0].as<cid_t>();
-            compound_infos[cid]["description"] = row[1].as<std::string>();
+            loaded_infos[cid]["description"] = row[1].as<std::string>();
         }
 
-        for(auto& [cid, info] : compound_infos)
-            this->compound_infos[cid] = std::move(info);
+        std::lock_guard<std::mutex> lock(this->compound_infos_mutex);
+        for(auto& [cid, info] : loaded_infos)
+            this->compound_infos.emplace(cid, std::move(info));
     }
 
 
@@ -226,9 +265,15 @@ namespace chm
     {
         this->retrieve_compound_infos(cids);
 
-        nlohmann::json compound_infos;
+        nlohmann::json compound_infos = nlohmann::json::array();
+        std::lock_guard<std::mutex> lock(this->compound_infos_mutex);
         for(cid_t cid : cids)
-            compound_infos.push_back(this->compound_infos[cid]);
+        {
+            auto info_it = this->compound_infos.find(cid);
+            if(info_it == this->compound_infos.end())
+                throw std::invalid_argument(fmt::format("Unknown compound cid {}", cid));
+            compound_infos.push_back(info_it->second);
+        }
         
         return compound_infos;
     }
@@ -237,25 +282,39 @@ namespace chm
     template<typename Iterable>
     void chm::App::retrieve_reaction_infos(Iterable rids)
     {
-        std::string rids_str = entries_to_sql_list(rids, this->reaction_infos);
+        std::vector<std::string> missing_rids;
+        {
+            std::lock_guard<std::mutex> lock(this->reaction_cache_mutex);
+            for (const std::string& rid : rids)
+            {
+                if (this->reaction_infos.find(rid) == this->reaction_infos.end())
+                    missing_rids.push_back(rid);
+            }
+        }
 
-        reaction_infos_t reaction_infos;
-        reaction_participants_t reaction_participants;
+        if (missing_rids.empty())
+            return;
+
+        std::unordered_set<std::string> no_blacklist;
+        std::string rids_str = entries_to_sql_list(missing_rids, no_blacklist);
+
+        reaction_infos_t loaded_infos;
+        reaction_participants_t loaded_participants;
 
         pqxx::result details_rows{this->run_pqxx_request_params_prepared("reaction_details", rids_str)};
         for(const auto& row : details_rows)
         {
             std::string rid = row[0].as<std::string>();
-            reaction_infos[rid]["rid"] = rid;
-            reaction_infos[rid]["balanced"] = row[1].as<bool>();
-            reaction_infos[rid]["complexity"] = row[2].as<float>();
-            reaction_infos[rid]["source"] = row[3].as<std::string>();
+            loaded_infos[rid]["rid"] = rid;
+            loaded_infos[rid]["balanced"] = row[1].as<bool>();
+            loaded_infos[rid]["complexity"] = row[2].as<float>();
+            loaded_infos[rid]["source"] = row[3].as<std::string>();
             if(!row[4].is_null())
-                reaction_infos[rid]["description"] = row[4].as<std::string>();
+                loaded_infos[rid]["description"] = row[4].as<std::string>();
             if(!row[5].is_null())
-                reaction_infos[rid]["patent"] = row[5].as<std::string>();
+                loaded_infos[rid]["patent"] = row[5].as<std::string>();
             if(!row[6].is_null())
-                reaction_infos[rid]["doi"] = row[6].as<std::string>();   
+                loaded_infos[rid]["doi"] = row[6].as<std::string>();
         }
 
 
@@ -270,8 +329,8 @@ namespace chm
                 entry["coeff"] = row[2].as<int16_t>();
             else
                 entry["coeff"] = nullptr;
-            reaction_infos[rid]["reactants"].push_back(entry);
-            reaction_participants[rid].first.push_back(cid);
+            loaded_infos[rid]["reactants"].push_back(entry);
+            loaded_participants[rid].first.push_back(cid);
         }
 
         pqxx::result products_rows{this->run_pqxx_request_params_prepared("reaction_products", rids_str)};
@@ -285,14 +344,15 @@ namespace chm
                 entry["coeff"] = row[2].as<int16_t>();
             else
                 entry["coeff"] = nullptr;
-            reaction_infos[rid]["products"].push_back(entry);
-            reaction_participants[rid].second.push_back(cid);
+            loaded_infos[rid]["products"].push_back(entry);
+            loaded_participants[rid].second.push_back(cid);
         }
 
-        for(auto& [rid, info] : reaction_infos)
-            this->reaction_infos[rid] = std::move(info);
-        for(auto& [rid, participants] : reaction_participants)
-            this->reaction_participants[rid] = std::move(participants);
+        std::lock_guard<std::mutex> lock(this->reaction_cache_mutex);
+        for(auto& [rid, info] : loaded_infos)
+            this->reaction_infos.emplace(rid, std::move(info));
+        for(auto& [rid, participants] : loaded_participants)
+            this->reaction_participants.emplace(rid, std::move(participants));
     }
 
     template<typename Iterable>
@@ -300,9 +360,15 @@ namespace chm
     {
         this->retrieve_reaction_infos(rids);
 
-        nlohmann::json reaction_infos;
+        nlohmann::json reaction_infos = nlohmann::json::array();
+        std::lock_guard<std::mutex> lock(this->reaction_cache_mutex);
         for(const std::string& rid : rids)
-            reaction_infos.push_back(this->reaction_infos[rid]);
+        {
+            auto info_it = this->reaction_infos.find(rid);
+            if(info_it == this->reaction_infos.end())
+                throw std::invalid_argument(fmt::format("Unknown reaction rid '{}'", rid));
+            reaction_infos.push_back(info_it->second);
+        }
         
         return reaction_infos;
     }

@@ -56,6 +56,6 @@ add_executable(chem_release ${SOURCES})
 target_include_directories(chem_release PRIVATE ${COMMON_INCLUDES})
 target_link_libraries(chem_release PRIVATE ${COMMON_LIBS})
 target_compile_options(chem_release PRIVATE -Wall -Wextra -Wpedantic -O3 -march=native -DNDEBUG)
-target_compile_definitions(chem_debug
+target_compile_definitions(chem_release
     PRIVATE PROJECT_DIR="${CMAKE_SOURCE_DIR}"
 )

@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <memory>
 #include <unordered_set>
 #include <cstdarg>
 
@@ -35,9 +36,16 @@ chm::App::App(const fs::path& data_dir)
     nlohmann::json db_info = nlohmann::json::parse(db_info_str);
 
     this->UI_DIR_PATH = this->DATA_DIR_PATH / "ui";
+    this->STRUCTURES_DIR_PATH = this->DATA_DIR_PATH / "structures";
     this->STRUCTURES_DIR_UI_PATH = "assets/structures";
 
+    fs::create_directories(this->STRUCTURES_DIR_PATH);
+
     std::string pq_params = "dbname=" + (std::string)db_info["dbname"];
+    if(db_info.contains("host"))
+        pq_params += " host=" + (std::string)db_info["host"];
+    if(db_info.contains("port"))
+        pq_params += " port=" + std::to_string((int)db_info["port"]);
     if(db_info.contains("user"))
     {
         pq_params += " user=" + (std::string)db_info["user"];
@@ -153,16 +161,27 @@ void chm::App::setup_sortings()
         "FROM " + table;
 
         pqxx::result rows = this->run_pqxx_request(sql);
+        size_t rows_size = static_cast<size_t>(rows.size());
         sorting_map_t *sorting_map = &this->sorting[key].first;
         std::vector<cid_t> *sorted_cids = &this->sorting[key].second;
-        sorted_cids->resize(rows.size());
+        sorted_cids->resize(rows_size);
+        std::vector<bool> seen_ranks(rows_size, false);
         for(const auto& row : rows)
         {
             cid_t cid = row[0].as<cid_t>();
             uint32_t rank = row[1].as<uint32_t>();
+            if(static_cast<size_t>(rank) >= rows_size)
+                throw std::invalid_argument(fmt::format("Sorting '{}' has out-of-range rank {}", key, rank));
+            if(seen_ranks[rank])
+                throw std::invalid_argument(fmt::format("Sorting '{}' contains duplicate rank {}", key, rank));
+
+            seen_ranks[rank] = true;
             (*sorting_map)[cid] = rank;
             (*sorted_cids)[rank] = cid;
         }
+
+        if(std::find(seen_ranks.begin(), seen_ranks.end(), false) != seen_ranks.end())
+            throw std::invalid_argument(fmt::format("Sorting '{}' must provide a dense rank sequence", key));
     };
 
     populate_sorting("compound_complexity_sorting", "complexity");
@@ -190,32 +209,24 @@ void chm::App::setup_graph()
         cid_t p_cid = row[1].as<cid_t>();
         std::string rid = row[2].as<std::string>();
 
-        unique_cids.insert({r_cid, p_cid});
+        unique_cids.insert(r_cid);
+        unique_cids.insert(p_cid);
 
         this->graph[r_cid][p_cid].push_back(rid);
         this->graph_reverse[p_cid][r_cid].push_back(rid);
     }
 
     this->retrieve_fingerprints(unique_cids);
-    std::cout << this->retrieve_compound_info_single(222).dump(4) << '\n';
-    this->retrieve_reaction_info_single("+hcR5qo9GYZLBXiylUkB+Q==");
-    std::cout << this->reaction_infos["+hcR5qo9GYZLBXiylUkB+Q=="].dump(4) << '\n';
-    std::cout << "Starting" << '\n';
-    std::cout << this->build_graph({222}, {313}, 4, 10, false).dump(4) << '\n';
-
-    std::cout << this->graph.size() << ' ' << unique_cids.size() << "\n\n";
 }
 
 
 void chm::App::setup_fuzzy()
 {
-    pqxx::work tx(*this->conn);
-
     std::string sql_synonyms =
         "SELECT synonym, cid "
         "FROM compound_synonyms";
     
-    pqxx::result synonym_rows = tx.exec(sql_synonyms);
+    pqxx::result synonym_rows = this->run_pqxx_request(sql_synonyms);
     std::vector<std::pair<std::string, cid_t>> syn_entries;
     for(const auto& row : synonym_rows)
     {
@@ -224,29 +235,29 @@ void chm::App::setup_fuzzy()
         syn_entries.push_back(std::make_pair(synonym, cid));
     }
 
-    this->fuzzy = new FuzzyMap(syn_entries);
-    std::cout << "Inserted\n";
-
-    auto res = this->fuzzy->search("amphetamine");
-    for(const auto& entry : res)
-    {
-        std::cout << entry.first << " -> " << entry.second << '\n';
-    }
-    std::cout << res.size() << '\n';
+    this->fuzzy = new FuzzyMap<cid_t>(syn_entries);
 }
 
 
 
 void chm::App::generate_compound_structure_svg(cid_t cid)
 {
-    fs::path svg_path = this->UI_DIR_PATH / this->STRUCTURES_DIR_UI_PATH / fmt::format("{}.svg", cid);
+    fs::path svg_path = this->STRUCTURES_DIR_PATH / fmt::format("{}.svg", cid);
     if(fs::exists(svg_path))
         return;
 
-    std::string smiles = this->compound_infos[cid]["smiles"];
-    RDKit::RWMol* mol = RDKit::SmilesToMol(smiles);
+    nlohmann::json compound_info = this->retrieve_compound_info_single(cid);
+    if(!compound_info.contains("smiles") || !compound_info["smiles"].is_string())
+        throw std::invalid_argument(fmt::format("Compound {} does not have a valid SMILES string", cid));
 
-    if (!mol) return;
+    std::string smiles = compound_info["smiles"].get<std::string>();
+    if(smiles.empty())
+        throw std::invalid_argument(fmt::format("Compound {} does not have a valid SMILES string", cid));
+
+    std::unique_ptr<RDKit::RWMol> mol(RDKit::SmilesToMol(smiles));
+
+    if (!mol)
+        throw std::runtime_error(fmt::format("Failed to parse SMILES for compound {}", cid));
 
     RDDepict::compute2DCoords(*mol);
 
@@ -261,6 +272,4 @@ void chm::App::generate_compound_structure_svg(cid_t cid)
     svg_fout << drawer.getDrawingText();
 
     svg_fout.close();
-
-    delete mol;
 }

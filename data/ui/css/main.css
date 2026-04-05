@@ -71,6 +71,11 @@ html,body{
     .side-panel {
         width: 80%;
     }
+
+    .filters-container,
+    .sliders-submit-container {
+        flex-wrap: wrap;
+    }
     
     .app-wrap.open .toggle-stripe {
         left: 80%;
@@ -82,6 +87,10 @@ html,body{
 
     .popup-split {
         grid-template-columns: 1fr;
+    }
+
+    .search-bar {
+        width: 100%;
     }
 }
 

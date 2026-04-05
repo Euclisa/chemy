@@ -1,59 +1,74 @@
 
+const HTML_ESCAPE_MAP = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+};
 
-function returnToBlank() {
-    selectedCIDs.clear();
-    directedEdges.clear();
-    document.getElementById('main').innerHTML = originalMainContent;
-    refreshResults();
+
+function escapeHtml(value = "") {
+    return String(value).replace(/[&<>"']/g, (char) => HTML_ESCAPE_MAP[char]);
 }
 
 
-function removeNode(cid, force = true) {
-    let edges_to_del = []
-    let secondary_parents = []
-    let has_children = false;
-    for(const edge of directedEdges) {
-        let [a, b] = edge.split('-').map(Number);
-        if(a === cid) {
-            edges_to_del.push(edge);
-            has_children = true;
+function escapeAttribute(value = "") {
+    return escapeHtml(value);
+}
+
+
+function formatMultilineHtml(value = "") {
+    return escapeHtml(value).replace(/\n/g, '<br>');
+}
+
+
+function formatParagraphsHtml(value = "") {
+    const paragraphs = String(value)
+        .trim()
+        .split(/\n\s*\n/)
+        .map((paragraph) => paragraph.trim())
+        .filter(Boolean);
+
+    return paragraphs.map((paragraph) => `<p>${formatMultilineHtml(paragraph)}</p>`).join('');
+}
+
+
+function getSafeExternalUrl(url) {
+    try {
+        const parsedUrl = new URL(String(url), window.location.origin);
+        if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+            return parsedUrl.href;
         }
-        else if(b === cid) {
-            edges_to_del.push(edge);
-            if(secondaryNodes.has(a))
-                secondary_parents.push(a);
-        }
+    } catch (error) {
+        return null;
     }
 
-    if(force || !has_children) {
-        selectedCIDs.delete(cid);
-        secondaryNodes.delete(cid);
-        sourceNodes.delete(cid);
-        targetNodes.delete(cid);
+    return null;
+}
 
-        for(const edge of edges_to_del)
-            directedEdges.delete(edge);
-        for(const cid of secondary_parents)
-            removeNode(cid, false);
-    }
+
+function returnToBlank() {
+    graph.reset();
+    catalog.resetPathLists();
 }
 
 
 function loadStructureSVG(cid, container) {
-    const svgPath = `assets/structures/${cid}.svg`;
-    
+    const svgPath = `/assets/structures/${cid}.svg`;
+
     fetch(svgPath)
-        .then(response => {
+        .then((response) => {
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
             return response.text();
         })
-        .then(svgContent => {
+        .then((svgContent) => {
             container.innerHTML = svgContent;
             container.classList.remove('loading');
         })
-        .catch(error => {
+        .catch(() => {
             container.innerHTML = '<i class="fa fa-flask" style="color: #ccc;"></i>';
             container.classList.remove('loading');
         });
@@ -69,19 +84,4 @@ function showLoading(message, showCancel = false) {
 
 function hideLoading() {
     document.getElementById('loading-overlay').style.display = 'none';
-}
-
-
-function setSortingOrder(sortingOrderList, reverse) {
-    currentResults = [];
-    currentPage = 0;
-
-    if (reverse) {
-        for (let i = sortingOrderList.length - 1; i >= 0; i--)
-            currentResults.push(cidToCompound.get(sortingOrderList[i]));
-    } else {
-        for (let i = 0; i < sortingOrderList.length; i++)
-            currentResults.push(cidToCompound.get(sortingOrderList[i]));
-    }
-    displayResults();
 }

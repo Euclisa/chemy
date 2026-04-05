@@ -5,6 +5,7 @@
 #include <charconv>
 #include <stdexcept>
 #include <type_traits>
+#include <sstream>
 
 
 namespace chm
@@ -28,6 +29,10 @@ namespace chm
         else if (ec == std::errc::result_out_of_range)
         {
             throw std::out_of_range("Number out of range: " + s);
+        }
+        else if (ptr != s.data() + s.size())
+        {
+            throw std::invalid_argument("Invalid number: " + s);
         }
 
         return value;
@@ -73,7 +78,7 @@ namespace chm
 
 
     template<typename Iterable, typename CidsBlacklist>
-    std::string entries_to_sql_list(Iterable entries, const CidsBlacklist& blacklist)
+    std::string entries_to_sql_list(const Iterable& entries, const CidsBlacklist& blacklist)
     {
         std::ostringstream cids_stream;
         cids_stream << "{";

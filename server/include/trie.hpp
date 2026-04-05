@@ -101,7 +101,11 @@ namespace chm
     template<typename value_t, typename key_t>
     template<typename T>
     requires std::is_same_v<T, char>
-    std::string Trie<value_t, key_t>::get_string() const { return this->s; }
+    std::string Trie<value_t, key_t>::get_string() const
+    {
+        std::vector<char> path = this->get_path();
+        return std::string(path.begin(), path.end());
+    }
 
 
     template<typename value_t, typename key_t>

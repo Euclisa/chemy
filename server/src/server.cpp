@@ -1,5 +1,6 @@
 #include "server.hpp"
 #include <fstream>
+#include <limits>
 
 
 void chm::Server::compound_info_request(const httplib::Request& req, httplib::Response& res)
@@ -30,6 +31,22 @@ void chm::Server::build_graph_request(const httplib::Request& req, httplib::Resp
     std::string body = req.body;
 
     nlohmann::json j = nlohmann::json::parse(body);
+    auto parse_uint16_field = [&j](const char *field_name)
+    {
+        if (!j.contains(field_name))
+            throw std::invalid_argument(fmt::format("'{}' field must be provided", field_name));
+        if (!j[field_name].is_number_integer())
+            throw std::runtime_error(fmt::format("'{}' must be an integer", field_name));
+
+        int value = j[field_name].get<int>();
+        if (value < 0 || value > std::numeric_limits<uint16_t>::max())
+        {
+            throw std::out_of_range(
+                fmt::format("'{}' must be between 0 and {}", field_name, std::numeric_limits<uint16_t>::max()));
+        }
+
+        return static_cast<uint16_t>(value);
+    };
 
     std::vector<cid_t> targets;
     std::vector<cid_t> sources;
@@ -71,26 +88,8 @@ void chm::Server::build_graph_request(const httplib::Request& req, httplib::Resp
         throw std::invalid_argument("'primary_only' field must be provided");
 
 
-    uint16_t max_paths ;
-    if (j.contains("max_paths")) 
-    {
-        if (!j["max_paths"].is_number_integer())
-            throw std::runtime_error("'max_paths' must be an integer");
-        max_paths = static_cast<uint16_t>(j["max_paths"].get<int>());
-    }
-    else
-        throw std::invalid_argument("'max_paths' field must be provided");
-
-
-    uint16_t max_cost;
-    if (j.contains("max_cost")) 
-    {
-        if (!j["max_cost"].is_number_integer())
-            throw std::runtime_error("'max_cost' must be an integer");
-        max_cost = static_cast<uint16_t>(j["max_cost"].get<int>());
-    }
-    else
-        throw std::invalid_argument("'max_cost' field must be provided");
+    uint16_t max_paths = parse_uint16_field("max_paths");
+    uint16_t max_cost = parse_uint16_field("max_cost");
 
     res.set_content(this->build_graph(sources, targets, max_cost, max_paths, primary_only).dump(), "application/json");
 }
@@ -103,10 +102,18 @@ void chm::Server::adjacent_edges_request(const httplib::Request& req, httplib::R
 
     cid_t cid = str_to_numeric<cid_t>(req.get_param_value("cid"));
     std::vector<std::vector<cid_t>> edges;
-    for(const auto& [target_cid, reactions] : this->graph)
-        edges.push_back({cid, target_cid});
-    for(const auto& [source_cid, reactions] : this->graph_reverse)
-        edges.push_back({source_cid, cid});
+    auto targets_it = this->graph.find(cid);
+    if(targets_it != this->graph.end())
+    {
+        for(const auto& [target_cid, reactions] : targets_it->second)
+            edges.push_back({cid, target_cid});
+    }
+    auto sources_it = this->graph_reverse.find(cid);
+    if(sources_it != this->graph_reverse.end())
+    {
+        for(const auto& [source_cid, reactions] : sources_it->second)
+            edges.push_back({source_cid, cid});
+    }
 
     res.set_content(this->convert_paths_to_graph(edges, true).dump(), "application/json");
 }
@@ -132,7 +139,7 @@ void chm::Server::get_structure_request(const httplib::Request& req, httplib::Re
 {
     std::string cid_str = req.matches[1];
     cid_t cid = str_to_numeric<cid_t>(cid_str);
-    fs::path svg_path = this->UI_DIR_PATH / this->STRUCTURES_DIR_UI_PATH / (cid_str + ".svg");
+    fs::path svg_path = this->STRUCTURES_DIR_PATH / (cid_str + ".svg");
 
     if (!fs::exists(svg_path)) {
         try {
@@ -195,6 +202,12 @@ void chm::Server::search_request(const httplib::Request& req, httplib::Response&
         total_size = sorted_cids.size();
     }
 
+    if(total_size == 0)
+    {
+        res.set_content(nlohmann::json({{"cids", nlohmann::json::array()}, {"is_end", true}}).dump(), "application/json");
+        return;
+    }
+
     if(offset >= total_size)
         throw std::invalid_argument(fmt::format("Invalid offset {} for results list with size {}", offset, total_size));
     
@@ -220,10 +233,25 @@ void chm::Server::process_request(const std::function<void(const httplib::Reques
 {
     try {
         handler(req, res);
-    } catch (const std::exception &e) {
+    } catch (const nlohmann::json::exception &e) {
         nlohmann::json j;
         j["error"] = e.what();
         res.status = 400;
+        res.set_content(j.dump(), "application/json");
+    } catch (const std::invalid_argument &e) {
+        nlohmann::json j;
+        j["error"] = e.what();
+        res.status = 400;
+        res.set_content(j.dump(), "application/json");
+    } catch (const std::out_of_range &e) {
+        nlohmann::json j;
+        j["error"] = e.what();
+        res.status = 400;
+        res.set_content(j.dump(), "application/json");
+    } catch (const std::exception &e) {
+        nlohmann::json j;
+        j["error"] = e.what();
+        res.status = 500;
         res.set_content(j.dump(), "application/json");
     }
 }

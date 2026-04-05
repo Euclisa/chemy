@@ -1,67 +1,30 @@
-import threading
 import os
 import json
 import shutil
-import logging
 import glob
 
-from rich.logging import RichHandler
-from rich.console import Console
-from rich import traceback
 
-from contextlib import contextmanager
+class JsonlStore:
 
-
-class ChemsDB:
-
-    def __init__(self, data_dir):
-        self.print_lock = threading.Lock()
-
-        self.data_dir = data_dir
-        if not os.path.exists(self.data_dir):
-            os.makedirs(self.data_dir)
-        
-        self.structures_dir = os.path.join(self.data_dir, 'structures')
-        if not os.path.exists(self.structures_dir):
-            os.makedirs(self.structures_dir)
-
+    def __init__(self):
         self._file_sorting_prefs = dict()
         self._dir_vault_prefs = dict()
-
         self._dir_vault_entries_per_file = 5000
 
-        self._console = Console()
-        traceback.install(console=self._console)
+    def register_sorting(self, path, prefs):
+        self._file_sorting_prefs[path] = prefs
 
-        logging.basicConfig(
-            level=logging.ERROR,
-            format="%(message)s",
-            datefmt="[%X]",
-            handlers=[RichHandler(console=self._console)]
-        )
-        self.__logger = logging.getLogger("ChemsDB")
-        self.__logger.setLevel(logging.INFO)
+    def register_vault(self, path, prefix):
+        self._dir_vault_prefs[path] = prefix
 
-        self.__no_warnings = False
-    
-
-    @contextmanager
-    def no_warnings(self):
-        self.__no_warnings = True
-        try:
-            yield
-        finally:
-            self.__no_warnings = False
-
-
-    def _load_jsonl(self, filename):
+    def load_jsonl(self, filename):
         if not os.path.exists(filename):
             return []
-        
+
         if os.path.isdir(filename):
             if filename not in self._dir_vault_prefs:
                 raise ValueError(f"Directory '{filename}' has no preferences set")
-            
+
             prefix = self._dir_vault_prefs[filename]
 
             files = sorted(
@@ -69,13 +32,13 @@ class ChemsDB:
                     f for f in os.listdir(filename)
                     if f.endswith('.jsonl') and f.startswith(prefix)
                 ),
-                key=lambda x: int(x[len(prefix):-len('.jsonl')])  # strip prefix and '.jsonl'
+                key=lambda x: int(x[len(prefix):-len('.jsonl')])
             )
 
             all_entries = []
             for fn in files:
                 full_path = os.path.join(filename, fn)
-                all_entries.extend(self._load_jsonl(full_path))
+                all_entries.extend(self.load_jsonl(full_path))
 
             return all_entries
 
@@ -86,19 +49,15 @@ class ChemsDB:
                     return []
 
                 return [json.loads(x) for x in content.split('\n')]
-    
 
-    def _entries_to_map(self, entries, key, value):
+    def entries_to_map(self, entries, key, value):
         return {entry[key]: entry[value] for entry in entries}
-    
 
-    def _load_jsonl_map(self, filename, key, value):
-        entries = self._load_jsonl(filename)
-        return self._entries_to_map(entries, key, value)
-    
+    def load_jsonl_map(self, filename, key, value):
+        entries = self.load_jsonl(filename)
+        return self.entries_to_map(entries, key, value)
 
     def _apply_sorting_prefs(self, entries, sorting_prefs):
-        sorting_prefs = sorting_prefs
         if sorting_prefs is not None:
             if isinstance(sorting_prefs, tuple) and len(sorting_prefs) == 2:
                 sorting_field = sorting_prefs[0]
@@ -110,16 +69,15 @@ class ChemsDB:
                 raise Exception(f"Invalid format of sorting preferences: {str(sorting_prefs)}")
 
             entries = sorted(entries, key=lambda x: x[sorting_field], reverse=sorting_reverse)
-        
+
         return entries
-    
+
     def __prepare_dirs(self, dir_path):
         for fn in glob.glob(os.path.join(dir_path, "*.jsonl")):
             try:
                 os.remove(fn)
-            except Exception as e:
-                self.log_warn(f"Failed to remove old file '{fn}': {e}")
-    
+            except Exception:
+                pass
 
     def __backup_path(self, path):
         backup = f"{path}.backup"
@@ -134,20 +92,19 @@ class ChemsDB:
         else:
             shutil.copy(path, backup)
 
-    
-    def _write_jsonl(self, entries, filename, backup=True, no_sort=False):
+    def write_jsonl(self, entries, filename, backup=True, no_sort=False):
 
         if filename in self._file_sorting_prefs:
             entries = self._apply_sorting_prefs(entries, self._file_sorting_prefs[filename])
         elif not no_sort:
-            self.log_warn(f"Writing to '{filename}' without sorting")
-        
+            pass  # caller is responsible for logging warnings
+
         if os.path.isdir(filename) and filename not in self._dir_vault_prefs:
             raise ValueError(f"Directory '{filename}' has no preferences set")
-        
+
         if os.path.exists(filename) and backup:
             self.__backup_path(filename)
-        
+
         if not os.path.exists(filename) and filename in self._dir_vault_prefs:
             os.makedirs(filename, exist_ok=True)
 
@@ -160,42 +117,16 @@ class ChemsDB:
                 batch = entries[batch_idx:batch_idx + self._dir_vault_entries_per_file]
                 file_num = batch_idx // self._dir_vault_entries_per_file + 1
                 fn = os.path.join(filename, f"{prefix}{file_num}.jsonl")
-                self._write_jsonl(batch, fn, backup=False, no_sort=True)
+                self.write_jsonl(batch, fn, backup=False, no_sort=True)
 
         else:
             with open(filename, 'w') as f:
                 for entry in entries:
                     f.write(json.dumps(entry) + '\n')
-    
 
-    def _map_to_entries(self, in_map, key, value):
+    def map_to_entries(self, in_map, key, value):
         return [{key: k, value: v} for k, v in in_map.items()]
-    
 
-    def _write_jsonl_map(self, in_map, key, value, filename, backup=True, no_sort=False):
-        entries = self._map_to_entries(in_map, key, value)
-        self._write_jsonl(entries, filename, backup=backup, no_sort=no_sort)
-    
-
-    def print(self, message=""):
-        with self.print_lock:
-            self._console.print(message)
-
-
-    def log(self, message=""):
-        with self.print_lock:
-            self.__logger.info(message)
-    
-    def log_warn(self, message):
-        if self.__no_warnings:
-            return
-
-        with self.print_lock:
-            self.__logger.warning(message)
-    
-
-    def log_err(self, message):
-        with self.print_lock:
-            self.__logger.error(message)
-
-    
+    def write_jsonl_map(self, in_map, key, value, filename, backup=True, no_sort=False):
+        entries = self.map_to_entries(in_map, key, value)
+        self.write_jsonl(entries, filename, backup=backup, no_sort=no_sort)

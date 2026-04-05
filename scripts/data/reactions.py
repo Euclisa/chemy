@@ -1,4 +1,3 @@
-from chempy import balance_stoichiometry
 import hashlib
 import base64
 import os
@@ -6,14 +5,14 @@ import os
 from functools import cached_property
 from types import MappingProxyType
 
-from chems_properties import ChemsProperties
 
+class ReactionStore:
 
-
-class ChemsReactionProperties(ChemsProperties):
-
-    def __init__(self, data_dir):
-        super().__init__(data_dir)
+    def __init__(self, data_dir, compounds, store, logger):
+        self.data_dir = data_dir
+        self.compounds = compounds
+        self.store = store
+        self.logger = logger
 
         self.parsed_reactions_dir = os.path.join(self.data_dir, 'reactions_parsed')
         self.reactions_details_dir = os.path.join(self.data_dir, 'reactions_details')
@@ -24,47 +23,47 @@ class ChemsReactionProperties(ChemsProperties):
         self.chem_names_blacklisted_fn = os.path.join(self.data_dir, "unmapped_names_blacklisted.txt")
         self.chem_smiles_blacklisted_fn = os.path.join(self.data_dir, 'unmapped_smiles_blacklisted.txt')
 
-        self._file_sorting_prefs[self.reactions_balance_fn] = 'rid'
-        self._dir_vault_prefs[self.reactions_balance_fn] = 'balance'
+        store.register_sorting(self.reactions_balance_fn, 'rid')
+        store.register_vault(self.reactions_balance_fn, 'balance')
 
-        self._file_sorting_prefs[self.unmapped_names_fn] = ('count', True)
+        store.register_sorting(self.unmapped_names_fn, ('count', True))
 
         self._max_balance_coeff_thr = 15
 
         self.sources_priority = dict()
-    
 
     @cached_property
     def reactions_balance(self):
-        balance = self._load_jsonl(self.reactions_balance_fn)
-        return MappingProxyType({entry['rid']: self._entries_to_map(entry['balance'], 'cid', 'coeff') for entry in balance})
-    
+        balance = self.store.load_jsonl(self.reactions_balance_fn)
+        return MappingProxyType({entry['rid']: self.store.entries_to_map(entry['balance'], 'cid', 'coeff') for entry in balance})
 
-    def _get_all_reaction_cids(self, reaction):
+    def clear_cached_property(self, name):
+        cls_attr = getattr(type(self), name, None)
+        if isinstance(cls_attr, cached_property) and name in self.__dict__:
+            del self.__dict__[name]
+
+    def get_all_reaction_cids(self, reaction):
         return list(entry['cid'] for entry in reaction['reagents']+reaction['products'])
-    
 
-    def _get_part_cids(self, part):
+    def get_part_cids(self, part):
         return [entry['cid'] for entry in part]
-    
 
-    def _validate_reaction(self, reaction):
-        all_cids = self._get_all_reaction_cids(reaction)
+    def validate_reaction(self, reaction):
+        all_cids = self.get_all_reaction_cids(reaction)
 
         if len(all_cids) != len(set(all_cids)):
             return False
-        
-        reagents_cids, products_cids = self._get_part_cids(reaction['reagents']), self._get_part_cids(reaction['products'])
+
+        reagents_cids, products_cids = self.get_part_cids(reaction['reagents']), self.get_part_cids(reaction['products'])
         if not reagents_cids or not products_cids:
             return False
-        
-        if self._get_reaction_hash(reaction) != reaction['rid']:
+
+        if self.get_reaction_hash(reaction) != reaction['rid']:
             return False
 
         return True
-    
 
-    def _get_reaction_as_str(self, reaction):
+    def get_reaction_as_str(self, reaction):
         balance = self.reactions_balance.get(reaction['rid'])
 
         def format_components(components):
@@ -80,30 +79,31 @@ class ChemsReactionProperties(ChemsProperties):
 
         return f"{reagents_str} -> {products_str}"
 
-
-    def _remove_reaction_balance_legacy_data(self, reaction):
+    def remove_reaction_balance_legacy_data(self, reaction):
         if 'balanced' in reaction:
             reaction.pop('balanced')
 
         for entry in reaction['reagents']+reaction['products']:
             if 'coeff' in entry:
                 entry.pop('coeff')
-        
+
         return reaction
 
-    def _balance_reaction(self, reaction):
-        if not self._validate_reaction(reaction):
-            reaction_str = self._get_reaction_as_str(reaction)
+    def balance_reaction(self, reaction):
+        if not self.validate_reaction(reaction):
+            reaction_str = self.get_reaction_as_str(reaction)
             raise ValueError(f"Reaction is invalid: '{reaction_str}'")
-        
-        self._remove_reaction_balance_legacy_data(reaction)
+
+        self.remove_reaction_balance_legacy_data(reaction)
 
         res_balance = {'rid': reaction['rid'], 'balance': []}
 
-        reagents = [self.cid_mf_map[x['cid']] for x in reaction['reagents']]
-        products = [self.cid_mf_map[x['cid']] for x in reaction['products']]
+        reagents = [self.compounds.cid_mf_map[x['cid']] for x in reaction['reagents']]
+        products = [self.compounds.cid_mf_map[x['cid']] for x in reaction['products']]
 
         try:
+            from chempy import balance_stoichiometry
+
             reagents_coeffs, products_coeffs = balance_stoichiometry(reagents, products, underdetermined=False)
         except:
             return None
@@ -114,18 +114,16 @@ class ChemsReactionProperties(ChemsProperties):
         if max_coeff > self._max_balance_coeff_thr or any(coeff < 0 for coeff in all_coeffs.values()):
             return None
 
-        for cid in self._get_all_reaction_cids(reaction):
-            mf = self.cid_mf_map[cid]
+        for cid in self.get_all_reaction_cids(reaction):
+            mf = self.compounds.cid_mf_map[cid]
             res_balance['balance'].append({'cid': cid, 'coeff': all_coeffs[mf]})
-        
+
         return res_balance
 
-
-    def _is_react_balanced(self, reaction):
+    def is_react_balanced(self, reaction):
         return reaction['rid'] in self.reactions_balance
 
-    
-    def _get_reaction_hash(self, reaction):
+    def get_reaction_hash(self, reaction):
         reagents_cids = sorted([x['cid'] for x in reaction['reagents']])
         products_cids = sorted([x['cid'] for x in reaction['products']])
         reagents_str = '(' + ','.join([str(x) for x in reagents_cids]) + ')'
@@ -135,42 +133,33 @@ class ChemsReactionProperties(ChemsProperties):
         hash_b64 = base64.b64encode(hash_bytes[:16]).decode("utf-8")
 
         return hash_b64
-    
 
-    def _get_reaction_complexity(self, reaction):
+    def get_reaction_complexity(self, reaction):
         av_complexity = 0
         for chem in reaction['reagents']+reaction['products']:
-            av_complexity += self.cid_chem_map[chem['cid']]['bertz_complexity']
+            av_complexity += self.compounds.cid_chem_map[chem['cid']]['bertz_complexity']
         av_complexity /= len(reaction['reagents']) + len(reaction['products'])
 
         return av_complexity
 
-
-    def _assemble_reaction(self, reaction):
-        reaction['complexity'] = self._get_reaction_complexity(reaction)
-        reaction['rid'] = self._get_reaction_hash(reaction)
+    def assemble_reaction(self, reaction):
+        reaction['complexity'] = self.get_reaction_complexity(reaction)
+        reaction['rid'] = self.get_reaction_hash(reaction)
 
         return reaction
 
-
-    def _convert_details_to_canonic(self, details: dict):
+    def convert_details_to_canonic(self, details):
         required_fields = ['rid', 'source']
         for field in required_fields:
             if field not in details:
                 raise Exception(f"Field '{field}' must be present in reaction details entry")
-        
+
         details.setdefault('confidence', None)
         details.setdefault('description', None)
         details.setdefault('catalysts', [])
         details.setdefault('solvents', [])
-        
+
         if 'provenance' not in details or details['provenance'] is None:
             details['provenance'] = {'doi': None, 'patent': None}
-        
+
         return details
-
-
-
-if __name__ == "__main__":
-    chems_parse = ChemsReactionProperties('data/')
-    chems_parse.balance_parsed_reactions()

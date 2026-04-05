@@ -1,21 +1,20 @@
-
 class PathsList {
     constructor(compounds) {
         this.selectedLevel = 1;
         this.sourceCids = new Set();
         this.targetCids = new Set();
-        this.compounds = compounds
+        this.compounds = compounds;
     }
 
 
     createItemInfo(compound) {
         const itemInfo = document.createElement('div');
         itemInfo.className = 'item-info';
-        
+
         const itemName = document.createElement('div');
         itemName.className = 'item-name';
         itemName.textContent = compound.name || 'Unknown compound';
-        
+
         const itemExtra = document.createElement('div');
         itemExtra.className = 'item-extra';
 
@@ -23,25 +22,30 @@ class PathsList {
         cidLink.href = `https://pubchem.ncbi.nlm.nih.gov/compound/${compound.cid}`;
         cidLink.textContent = `${compound.cid}`;
         cidLink.target = '_blank';
-        const cidPrefix = document.createTextNode('CID: ');
-        itemExtra.appendChild(cidPrefix);
+        cidLink.rel = 'noopener noreferrer';
+        itemExtra.appendChild(document.createTextNode('CID: '));
         itemExtra.appendChild(cidLink);
 
         if (compound.wiki) {
             const wikiLink = document.createElement('a');
             wikiLink.href = compound.wiki;
-            wikiLink.textContent = `${compound.wiki.split('/').at(-1).replace('_', ' ')}`;
+            wikiLink.textContent = `${compound.wiki.split('/').at(-1).replace(/_/g, ' ')}`;
             wikiLink.target = '_blank';
-            
-            const sep_wiki_prefix = document.createTextNode(' | Wiki: ');
-            itemExtra.appendChild(sep_wiki_prefix);
+            wikiLink.rel = 'noopener noreferrer';
+
+            itemExtra.appendChild(document.createTextNode(' | Wiki: '));
             itemExtra.appendChild(wikiLink);
         }
-        
+
         itemInfo.appendChild(itemName);
         itemInfo.appendChild(itemExtra);
 
         return itemInfo;
+    }
+
+
+    hasCidInLevel(cid, level = this.selectedLevel) {
+        return level === 1 ? this.sourceCids.has(cid) : this.targetCids.has(cid);
     }
 
 
@@ -52,7 +56,7 @@ class PathsList {
     }
 
 
-    #createPathItem(compound) {
+    #createPathItem(compound, level) {
         const cid = compound.cid;
 
         const item = document.createElement('div');
@@ -69,9 +73,9 @@ class PathsList {
         const removeBtn = document.createElement('button');
         removeBtn.className = 'compound-item-btn remove-item';
         removeBtn.textContent = 'X';
-
+        removeBtn.type = 'button';
         removeBtn.addEventListener('click', () => {
-            this.removeCidAndRenderLists(cid);
+            this.removeCidAndRenderLists(cid, level);
         });
 
         item.appendChild(iconContainer);
@@ -80,7 +84,7 @@ class PathsList {
 
         item.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            this.removeCidAndRenderLists(cid);
+            this.removeCidAndRenderLists(cid, level);
         });
 
         return item;
@@ -93,40 +97,40 @@ class PathsList {
         level1Items.innerHTML = '';
         level2Items.innerHTML = '';
 
-        this.sourceCids.forEach(cid => {
-            const comp = this.compounds.get(cid);
-            if (comp) {
-                const item = this.#createPathItem(comp);
-                level1Items.appendChild(item);
+        this.sourceCids.forEach((cid) => {
+            const compound = this.compounds.get(cid);
+            if (compound) {
+                level1Items.appendChild(this.#createPathItem(compound, 1));
             }
         });
 
-        this.targetCids.forEach(cid => {
-            const comp = this.compounds.get(cid);
-            if (comp) {
-                const item = this.#createPathItem(comp);
-                level2Items.appendChild(item);
+        this.targetCids.forEach((cid) => {
+            const compound = this.compounds.get(cid);
+            if (compound) {
+                level2Items.appendChild(this.#createPathItem(compound, 2));
             }
         });
     }
 
 
-    removeCidAndRenderLists(cid) {
-        if (this.selectedLevel === 1) {
-            this.sourceCids.delete(cid);
-        } else {
-            this.targetCids.delete(cid);
-        }
+    removeCidAndRenderLists(cid, level = this.selectedLevel) {
+        const cids = level === 1 ? this.sourceCids : this.targetCids;
+        cids.delete(cid);
         this.renderPathList();
     }
 
 
-    addCidAndRenderLists(cid) {
-        if (this.selectedLevel === 1) {
-            this.sourceCids.add(cid);
-        } else {
-            this.targetCids.add(cid);
-        }
+    addCidAndRenderLists(cid, level = this.selectedLevel) {
+        const cids = level === 1 ? this.sourceCids : this.targetCids;
+        cids.add(cid);
+        this.renderPathList();
+    }
+
+
+    resetPathLists() {
+        this.sourceCids.clear();
+        this.targetCids.clear();
+        this.selectLevel(1);
         this.renderPathList();
     }
 }

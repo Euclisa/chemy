@@ -1,7 +1,6 @@
 #include <queue>
 #include <bit>
 #include <algorithm>
-#include <execution>
 #include <tuple>
 
 #include "app.hpp"
@@ -10,23 +9,23 @@
 
 chm::App::ecfp4_t chm::App::parse_pqxx_row_fingerprint(const pqxx::row& row)
 {
-    pqxx::array_parser fp_parser = row[1].as_array();
-    fp_parser.get_next();
+    auto fp_array = row[1].as_sql_array<int64_t>();
+    cid_t cid = row[0].as<cid_t>();
 
     ecfp4_bits_t fp_bits;
-    for(size_t i = 0; i < ecfp4_chunks_num; ++i)
+    if(fp_array.size() != ecfp4_chunks_num)
     {
-        auto parsed = fp_parser.get_next();
-        if(parsed.first != fp_parser.string_value)
-        {
-            cid_t cid = row[0].as<cid_t>();
-            std::string fp_str = row[1].as<std::string>();
-            throw std::invalid_argument(fmt::format("(juncture={}) Invalid fingerprint for cid {}: '{}'", parsed.first, cid, fp_str));
-        }
-        
-        int64_t fp_chunk = str_to_numeric<int64_t>(parsed.second);
-        fp_bits[i] = static_cast<ecfp4_chunk_t>(fp_chunk);
+        std::string fp_str = row[1].as<std::string>();
+        throw std::invalid_argument(
+            fmt::format(
+                "Invalid fingerprint length for cid {}: expected {}, got {} in '{}'",
+                cid,
+                ecfp4_chunks_num,
+                fp_array.size(),
+                fp_str));
     }
+
+    std::copy_n(fp_array.cbegin(), ecfp4_chunks_num, fp_bits.begin());
 
     ecfp4_pc_t popcount = row[2].as<ecfp4_pc_t>();
 
@@ -36,11 +35,21 @@ chm::App::ecfp4_t chm::App::parse_pqxx_row_fingerprint(const pqxx::row& row)
 
 chm::App::ecfp4_t chm::App::retrieve_fingerprint_single(cid_t cid)
 {
+    {
+        std::lock_guard<std::mutex> lock(this->fingerprints_mutex);
+        auto fp_it = this->fingerprints.find(cid);
+        if(fp_it != this->fingerprints.end())
+            return fp_it->second;
+    }
 
-    if(this->fingerprints.find(cid) == this->fingerprints.end())    
-        this->retrieve_fingerprints(std::vector<cid_t>{cid});
-    
-    return this->fingerprints[cid];
+    this->retrieve_fingerprints(std::vector<cid_t>{cid});
+
+    std::lock_guard<std::mutex> lock(this->fingerprints_mutex);
+    auto fp_it = this->fingerprints.find(cid);
+    if(fp_it == this->fingerprints.end())
+        throw std::invalid_argument(fmt::format("Missing fingerprint for cid {}", cid));
+
+    return fp_it->second;
 }
 
 
@@ -48,7 +57,7 @@ double chm::App::compute_tanimoto(const ecfp4_t& a, const ecfp4_t& b)
 {
     ecfp4_pc_t and_pc = 0;
     for(size_t i = 0; i < ecfp4_chunks_num; ++i)
-        and_pc += std::popcount(a.first[i] & a.first[i]);
+        and_pc += std::popcount(a.first[i] & b.first[i]);
     
     ecfp4_pc_t or_pc = a.second + b.second - and_pc;
 
@@ -79,6 +88,9 @@ bool chm::App::max_targets_tanimoto_cmp(const cid_t a, const cid_t b, const std:
 
 std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths(const std::vector<cid_t>& sources, const std::vector<cid_t>& targets, uint16_t max_cost, uint16_t max_paths)
 {
+    if(max_paths == 0)
+        return std::vector<std::vector<cid_t>>();
+
     if(sources.size() == 0 && targets.size() == 0)
         return std::vector<std::vector<cid_t>>();
 
@@ -107,8 +119,17 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_both_lists(const 
     { return this->max_targets_tanimoto_cmp(a->get_key(), b->get_key(), targets_fp, cids_sim); };
     
     std::priority_queue<traverse_trie_t*, std::vector<traverse_trie_t*>, decltype(cmp)> pqueue(cmp);
+    std::unordered_set<cid_t> targets_set(targets.begin(), targets.end());
+    std::vector<std::vector<cid_t>> result_paths;
     for(cid_t cid : sources)
     {
+        if(targets_set.find(cid) != targets_set.end())
+        {
+            result_paths.push_back({cid});
+            if(result_paths.size() == max_paths)
+                return result_paths;
+        }
+
         traverse_trie_t *src_node = paths_trie.insert_key(cid);
         pqueue.push(src_node);
     }
@@ -124,9 +145,6 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_both_lists(const 
         }
     };
     
-    std::unordered_set<cid_t> targets_set(targets.begin(), targets.end());
-
-    std::vector<std::vector<cid_t>> result_paths;
     while(pqueue.size())
     {
         traverse_trie_t *curr_trie = pqueue.top();
@@ -164,6 +182,9 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_both_lists(const 
 
 std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_single_list(const std::vector<cid_t>& cids, graph_t& graph, uint16_t max_cost, uint16_t max_paths)
 {
+    if(max_paths == 0 || cids.empty())
+        return std::vector<std::vector<cid_t>>();
+
     std::vector<ecfp4_t> cids_fp;
     cids_fp.reserve(cids.size());
     std::transform(cids.begin(), cids.end(), std::back_inserter(cids_fp),
@@ -209,6 +230,13 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_single_list(const
         traverse_trie_t *curr_trie = pqueue.top();
         pqueue.pop();
 
+        if(curr_trie->get_depth() - 1U >= max_cost)
+        {
+            if(save_path_check_exit(curr_trie))
+                return result_paths;
+            continue;
+        }
+
         cid_t cid = curr_trie->get_key();
 
         std::unordered_set<cid_t> visited;
@@ -221,13 +249,7 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_single_list(const
                 continue;
 
             traverse_trie_t *neigh_trie = curr_trie->insert_key(neigh_cid);
-            if(curr_trie->get_depth() == max_cost + 1U)
-            {
-                if(save_path_check_exit(neigh_trie))
-                    return result_paths;
-            }
-            else
-                pqueue.push(neigh_trie);
+            pqueue.push(neigh_trie);
         }
 
         if(curr_trie->children.size() == 0)
@@ -260,9 +282,18 @@ std::vector<std::vector<chm::App::cid_t>> chm::App::find_paths_targets_only(cons
 nlohmann::json chm::App::convert_paths_to_graph(const std::vector<std::vector<cid_t>>& paths, bool primary_only)
 {
     graph_t paths_graph;
-    std::unordered_set<cid_t> secondary_cids, all_cids;
+    std::unordered_set<cid_t> primary_cids, secondary_cids, all_cids;
     for(const auto& path : paths)
     {
+        for(cid_t cid : path)
+        {
+            primary_cids.insert(cid);
+            all_cids.insert(cid);
+        }
+
+        if(path.size() < 2)
+            continue;
+
         for(size_t i = 0; i < path.size()-1; ++i)
         {
             cid_t src = path[i];
@@ -293,9 +324,18 @@ nlohmann::json chm::App::convert_paths_to_graph(const std::vector<std::vector<ci
 
                 for(const std::string& rid : reactions)
                 {
-                    for(cid_t src_cid : this->reaction_participants[rid].first)
+                    std::vector<cid_t> reactant_cids;
                     {
-                        if(paths_graph.find(src_cid) != paths_graph.end())
+                        std::lock_guard<std::mutex> lock(this->reaction_cache_mutex);
+                        auto participants_it = this->reaction_participants.find(rid);
+                        if(participants_it == this->reaction_participants.end())
+                            throw std::runtime_error(fmt::format("Missing participants for reaction '{}'", rid));
+                        reactant_cids = participants_it->second.first;
+                    }
+
+                    for(cid_t src_cid : reactant_cids)
+                    {
+                        if(primary_cids.find(src_cid) != primary_cids.end())
                             continue;
                         secondary_graph[src_cid][target].push_back(rid);
                         secondary_cids.insert(src_cid);
@@ -307,7 +347,7 @@ nlohmann::json chm::App::convert_paths_to_graph(const std::vector<std::vector<ci
         paths_graph.insert(secondary_graph.begin(), secondary_graph.end());
     }
 
-    nlohmann::json graph_json;
+    nlohmann::json graph_json = nlohmann::json::array();
     for(cid_t source : all_cids)
     {
         nlohmann::json source_entry = {

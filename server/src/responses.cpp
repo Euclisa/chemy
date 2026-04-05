@@ -4,20 +4,42 @@
 
 nlohmann::json chm::App::retrieve_compound_info_single(cid_t cid)
 {
-    if(this->compound_infos.find(cid) == this->compound_infos.end())
-        this->retrieve_compound_infos(std::vector<cid_t>{cid});
+    {
+        std::lock_guard<std::mutex> lock(this->compound_infos_mutex);
+        auto info_it = this->compound_infos.find(cid);
+        if(info_it != this->compound_infos.end())
+            return info_it->second;
+    }
 
-    return this->compound_infos[cid];
+    this->retrieve_compound_infos(std::vector<cid_t>{cid});
+
+    std::lock_guard<std::mutex> lock(this->compound_infos_mutex);
+    auto info_it = this->compound_infos.find(cid);
+    if(info_it == this->compound_infos.end())
+        throw std::invalid_argument(fmt::format("Unknown compound cid {}", cid));
+
+    return info_it->second;
 }
 
 
 
 nlohmann::json chm::App::retrieve_reaction_info_single(const std::string& rid)
 {
-    if(this->reaction_infos.find(rid) == this->reaction_infos.end())
-        this->retrieve_reaction_infos(std::vector<std::string>{rid});
+    {
+        std::lock_guard<std::mutex> lock(this->reaction_cache_mutex);
+        auto info_it = this->reaction_infos.find(rid);
+        if(info_it != this->reaction_infos.end())
+            return info_it->second;
+    }
 
-    return this->reaction_infos[rid];
+    this->retrieve_reaction_infos(std::vector<std::string>{rid});
+
+    std::lock_guard<std::mutex> lock(this->reaction_cache_mutex);
+    auto info_it = this->reaction_infos.find(rid);
+    if(info_it == this->reaction_infos.end())
+        throw std::invalid_argument(fmt::format("Unknown reaction rid '{}'", rid));
+
+    return info_it->second;
 }
 
 
