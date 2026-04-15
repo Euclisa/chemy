@@ -2,6 +2,8 @@ import csv
 import json
 from pathlib import Path
 
+from scripts.ops.raw_reactions.presets import get_preset
+
 
 def test_bigsol_parser_groups_valid_rows_and_converts_units(ops_context):
     with open(ops_context.bigsol.big_sol_fn, "w", newline="") as f:
@@ -168,7 +170,7 @@ def test_reaction_llm_parser_raw_parsing_applies_threshold_and_deduplicates(ops_
     duplicate_reaction = "Water -> Ethanol"
     low_confidence = "Water -> Methanol"
 
-    with open(ops_context.reaction_llm.raw_reactions_verdict_fn, "w") as f:
+    with open(ops_context.raw_reactions.layout.verdict("default"), "w") as f:
         for entry in [
             {"reaction": valid_reaction, "confidence": 0.9, "source": "openai/gpt-oss-120b"},
             {"reaction": duplicate_reaction, "confidence": 0.8, "source": "qwen/qwen3-235b-a22b"},
@@ -176,7 +178,7 @@ def test_reaction_llm_parser_raw_parsing_applies_threshold_and_deduplicates(ops_
         ]:
             f.write(json.dumps(entry) + "\n")
 
-    ops_context.reaction_llm.parse_raw_llm_reactions()
+    ops_context.raw_reactions.parse(["default"])
     parsed = ops_context.store.load_jsonl(ops_context.reaction_llm.reactions_parsed_llm_fn)
 
     assert len(parsed) == 1
@@ -217,16 +219,16 @@ def test_llm_fetch_helpers_and_fallback_schedule(ops_context, monkeypatch, tmp_p
         calls.append(f"revalidate:{model}")
         return "Water -> Ethanol"
 
-    monkeypatch.setattr(ops_context.llm_ops, "fetch_llm_answer_str", fake_fetch)
+    monkeypatch.setattr(ops_context.llm_client, "fetch_answer_str", fake_fetch)
     monkeypatch.setattr(ops_context.llm_client, "_fetch_answer", fake_refine)
 
-    result = ops_context.llm_ops._fetch_raw_reactions(ops_context.water)
+    result = ops_context.raw_reactions._fetcher.fetch_one(ops_context.water, get_preset("default"))
 
     assert result == {"cid": ops_context.water["cid"], "reactions": ["Water -> Ethanol"]}
     assert calls == [
-        ops_context.llm_ops.gpt_oss,
-        ops_context.llm_ops.qwen,
-        f"revalidate:{ops_context.llm_ops.qwen}",
+        ops_context.reaction_llm.gpt_oss,
+        ops_context.reaction_llm.qwen,
+        f"revalidate:{ops_context.reaction_llm.qwen}",
     ]
 
 

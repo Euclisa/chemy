@@ -1,4 +1,3 @@
-import json
 import os
 
 
@@ -15,22 +14,6 @@ class ReactionLLMParser:
         self.grok = "x-ai/grok-4-fast"
         self.gemini = "google/gemini-2.5-flash-lite"
         self.deepseek = "deepseek/deepseek-v3.2-exp"
-
-        raw_reactions_dir = os.path.join(self.data_dir, 'raw_reactions')
-        os.makedirs(raw_reactions_dir, exist_ok=True)
-
-        self.raw_reactions_fn = os.path.join(raw_reactions_dir, "raw_reactions.jsonl")
-        self.wiki_raw_reactions_fn = os.path.join(raw_reactions_dir, "wiki_raw_reactions.jsonl")
-        self.top_rare_raw_reactions_fn = os.path.join(raw_reactions_dir, "top_rare_raw_reactions.jsonl")
-        self.raw_reactions_verdict_fn = os.path.join(raw_reactions_dir, "raw_reactions_verdict.jsonl")
-        self.products_wiki_raw_reactions_fn = os.path.join(
-            raw_reactions_dir,
-            'wiki_products_raw_reactions.jsonl',
-        )
-        self.products_annot_raw_reactions_fn = os.path.join(
-            raw_reactions_dir,
-            'annotated_products_raw_reactions.jsonl',
-        )
 
         self.reactions_parsed_fixed_fn = os.path.join(
             self.reactions.parsed_reactions_dir,
@@ -123,37 +106,3 @@ class ReactionLLMParser:
         reaction = self.reactions.assemble_reaction({'reagents': reagents, 'products': products})
         return reaction, unmapped_names
 
-    def find_all_unicode_chars_in_raw_reactions(self):
-        non_ascii = dict()
-        with open(self.raw_reactions_verdict_fn) as f:
-            for line in f:
-                reaction = json.loads(line)['reaction']
-                non_ascii_curr = [char for char in reaction if ord(char) > 127]
-                for char in non_ascii_curr:
-                    non_ascii[char] = non_ascii.get(char, 0) + 1
-
-        return non_ascii
-
-    def parse_raw_llm_reactions(self):
-        parsed = []
-        processed_rids = set()
-        with open(self.raw_reactions_verdict_fn) as f:
-            total = self.compounds.count_file_lines(self.raw_reactions_verdict_fn)
-            for line in self.logger.track(f, "Parsing raw LLM reactions", total=total):
-                entry = json.loads(line)
-                reaction = entry['reaction']
-                confidence = entry['confidence']
-                if confidence < 0.4:
-                    continue
-
-                parsed_reaction, _ = self.parse_reaction_scheme(reaction)
-                if not parsed_reaction or parsed_reaction['rid'] in processed_rids:
-                    continue
-
-                processed_rids.add(parsed_reaction['rid'])
-                parsed_reaction['confidence'] = confidence
-                parsed_reaction['source'] = entry['source']
-                parsed.append(parsed_reaction)
-
-        self.store.write_jsonl(parsed, self.reactions_parsed_llm_fn)
-        self.logger.log(f"Successfully parsed {len(parsed)} reactions!")

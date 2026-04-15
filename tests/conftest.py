@@ -8,6 +8,7 @@ from rdkit.Chem import AllChem, Descriptors, GraphDescriptors, inchi, rdMolDescr
 from scripts.data import CompoundStore, ReactionStore
 from scripts.infra import JsonlStore, Logger
 from scripts.ops.bigsol_parser import BigSolParser
+from scripts.ops.raw_reactions import RawReactionsPipeline
 from scripts.ops.conflicts import ConflictResolver
 from scripts.ops.hazards import HazardAssembler
 from scripts.ops.llm_fetch import LLMFetchOps
@@ -278,6 +279,15 @@ def ops_context(compiler_context):
         llm_client,
         reaction_llm,
     )
+    raw_reactions = RawReactionsPipeline(
+        data_dir,
+        compiler_context.compounds,
+        compiler_context.reactions,
+        compiler_context.store,
+        compiler_context.logger,
+        llm_client,
+        reaction_llm,
+    )
     misc = MiscOps(
         data_dir,
         compiler_context.compounds,
@@ -323,6 +333,7 @@ def ops_context(compiler_context):
         conflicts_ops=conflicts,
         hazards_ops=hazards,
         reaction_llm=reaction_llm,
+        raw_reactions=raw_reactions,
         solubility_ops=solubility,
         llm_client=llm_client,
         llm_ops=llm,

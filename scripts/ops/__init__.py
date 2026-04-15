@@ -1,4 +1,5 @@
 from .bigsol_parser import BigSolParser
+from .raw_reactions import RawReactionsPipeline
 from .conflicts import ConflictResolver
 from .crc_parser import CRCParser
 from .hazards import HazardAssembler

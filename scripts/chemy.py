@@ -1,6 +1,7 @@
 from .data import CompoundStore, ReactionStore
 from .infra import JsonlStore, Logger, LLMClient
 from .ops.bigsol_parser import BigSolParser
+from .ops.raw_reactions import RawReactionsPipeline
 from .ops.conflicts import ConflictResolver
 from .ops.crc_parser import CRCParser
 from .ops.hazards import HazardAssembler
@@ -92,6 +93,16 @@ class Chemy:
             self.hazards,
             db_name=db_name,
         )
+        self.raw_reactions = RawReactionsPipeline(
+            data_dir,
+            self.compounds,
+            self.reactions,
+            self.store,
+            self.logger,
+            self.llm_client,
+            self.reaction_llm,
+        )
+
         self.thermo = ThermoOps(data_dir, self.compounds)
         self.thermo_xtb = ThermoXtbOps(
             data_dir,
