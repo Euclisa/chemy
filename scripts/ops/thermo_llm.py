@@ -10,7 +10,6 @@ class ThermoLLMOps:
     def __init__(
         self,
         data_dir,
-        compounds,
         reactions,
         store,
         logger,
@@ -19,7 +18,6 @@ class ThermoLLMOps:
         llm_client,
         reaction_parser,
     ):
-        self.compounds = compounds
         self.reactions = reactions
         self.store = store
         self.logger = logger
@@ -51,7 +49,7 @@ class ThermoLLMOps:
         instruct = (
             "You will be given a list of chemical reaction schemes. "
             "Your task is to estimate the enthalpy and free energy of each reaction based on your chemical "
-            "knowledge. Assume standrd conditions. Provide both values in kcal/mole as plain integers, "
+            "knowledge. Assume standard conditions. Provide both values in kcal/mole as plain integers, "
             "separated by a comma, one reaction per line. Format: <enthalpy>, <free energy>\n"
             "Do not include anything other than the estimates."
         )
@@ -63,24 +61,29 @@ class ThermoLLMOps:
 
         for _ in range(2):
             response = self.llm_client.fetch_answer_str(f"{instruct}\n\n{reactions_formatted_str}", model)
-            response = response.strip().split('\n')
-            if len(response) == len(reactions):
-                results = []
-                for i, entry in enumerate(response):
-                    dH, dG = re.sub(r'\s+', '', entry).split(',')
-                    try:
-                        dH_value = float(dH)
-                        dG_value = float(dG)
-                    except (TypeError, ValueError):
-                        continue
+            lines = response.strip().split('\n')
+            if len(lines) != len(reactions):
+                continue
 
-                    results.append(
-                        {
-                            'rid': reactions[i]['rid'],
-                            'estimates': {'dH': dH_value, 'dG': dG_value, 'source': model},
-                        }
-                    )
-                return results
+            results = []
+            for i, line in enumerate(lines):
+                try:
+                    dH, dG = re.sub(r'\s+', '', line).split(',')
+                    dH_value = float(dH)
+                    dG_value = float(dG)
+                except (TypeError, ValueError):
+                    continue
+
+                results.append(
+                    {
+                        'rid': reactions[i]['rid'],
+                        'estimates': {'dH': dH_value, 'dG': dG_value, 'source': model},
+                    }
+                )
+            return results
+
+        self.logger.log_err(f"Failed to parse LLM response for batch of {len(reactions)} reactions")
+        return None
 
     def get_reactions_thermo(self, max_workers=1):
         current_thermo = self.store.load_jsonl(self.reactions_thermo_llm_fn)
@@ -112,7 +115,6 @@ class ThermoLLMOps:
             try:
                 while reactions_staged:
                     iter_i += 1
-                    futures.clear()
 
                     for i in range(0, len(reactions_staged), 10):
                         batch = reactions_staged[i:i + 10]
@@ -138,10 +140,9 @@ class ThermoLLMOps:
 
             finally:
                 save_results()
-                executor.shutdown(wait=False, cancel_futures=True)
                 self.logger.log("Done!")
 
-    def get_llm_thermo_estimations_distribuition(self, num_bins=20):
+    def get_llm_thermo_estimations_distribution(self, num_bins=20):
         import matplotlib.pyplot as plt
 
         thermo_entries = self.store.load_jsonl(self.reactions_thermo_llm_fn)
@@ -176,7 +177,7 @@ class ThermoLLMOps:
 
     def filter_anomaly_llm_thermo(self):
         entries = self.store.load_jsonl(self.reactions_thermo_llm_fn)
-        entries = [entry for entry in entries if entry['mean']['dH'] > -500 and entry['mean']['dG'] < 100]
+        entries = [entry for entry in entries if abs(entry['mean']['dH']) < 500 and abs(entry['mean']['dG']) < 100]
         self.store.write_jsonl(entries, self.reactions_thermo_llm_fn)
 
     def process_llm_thermo_estimates(self):
@@ -192,63 +193,61 @@ class ThermoLLMOps:
                 return False
             if reaction['source'] == 'ord':
                 return False
-
             all_cids = self.reactions.get_all_reaction_cids(reaction)
             return not any(chem_reactions_occurence[cid] < 3 for cid in all_cids)
 
         reactions = list(filter(reactions_filter, self.properties.parsed_reactions_balanced))
 
         cid_to_index = {}
-        cid_to_react_i = {}
-        for react_i, reaction in enumerate(reactions):
-            all_cids = self.reactions.get_all_reaction_cids(reaction)
-            for cid in all_cids:
+        for reaction in reactions:
+            for cid in self.reactions.get_all_reaction_cids(reaction):
                 cid_to_index.setdefault(cid, len(cid_to_index))
-                cid_to_react_i.setdefault(cid, []).append(react_i)
+
+        def coeff_map(reaction):
+            balance = self.reactions.reactions_balance[reaction['rid']]
+            coeffs = {}
+            for reagent in reaction['reagents']:
+                coeffs[reagent['cid']] = -balance[reagent['cid']]
+            for product in reaction['products']:
+                coeffs[product['cid']] = balance[product['cid']]
+            return coeffs
 
         def normalize_value(value):
+            # Clamp near-zero magnitudes to 1 to avoid inflating weights for small estimates
             return value if abs(value) > 1 else 1
 
-        dim = len(cid_to_index)
-        A_dH, A_dG = lil_matrix((dim, dim)), lil_matrix((dim, dim))
-        b_dH, b_dG = np.zeros(dim), np.zeros(dim)
+        reaction_coeffs = {reaction['rid']: coeff_map(reaction) for reaction in reactions}
 
-        for cid, cid_i in self.logger.track(cid_to_index.items(), "Computing MRSE matrix", total=len(cid_to_index)):
-            for react_i in cid_to_react_i[cid]:
-                reaction = reactions[react_i]
-                balance = self.reactions.reactions_balance[reaction['rid']]
-                reaction_thermo_estimates = thermo_map[reaction['rid']]['estimates']
+        # Build design matrix M: one row per (reaction, estimate) pair.
+        # Each row is scaled by 1/normalize(est) so lsqr minimises the weighted residual directly,
+        # avoiding the numerical instability of forming normal equations explicitly.
+        rows = [
+            (reaction, est)
+            for reaction in reactions
+            for est in thermo_map[reaction['rid']]['estimates']
+        ]
 
-                def get_cid_reaction_coeff(target_reaction, target_cid):
-                    for reagent in target_reaction['reagents']:
-                        if reagent['cid'] == target_cid:
-                            return -balance[target_cid]
-                    for product in target_reaction['products']:
-                        if product['cid'] == target_cid:
-                            return balance[target_cid]
-                    raise Exception(f"CID {target_cid} not found in reaction with RID: {target_reaction['rid']}")
+        n_rows, n_cols = len(rows), len(cid_to_index)
+        M_dH = lil_matrix((n_rows, n_cols))
+        M_dG = lil_matrix((n_rows, n_cols))
+        b_dH = np.zeros(n_rows)
+        b_dG = np.zeros(n_rows)
 
-                cid_reaction_coeff = get_cid_reaction_coeff(reaction, cid)
-                for est in reaction_thermo_estimates:
-                    common_term = balance[cid] * cid_reaction_coeff
-                    norm_est_dH = normalize_value(est['dH']) ** 2
-                    norm_est_dG = normalize_value(est['dG']) ** 2
+        for row_i, (reaction, est) in self.logger.track(enumerate(rows), "Building LSQR matrix", total=n_rows):
+            coeffs = reaction_coeffs[reaction['rid']]
+            w_dH = 1.0 / normalize_value(abs(est['dH']))
+            w_dG = 1.0 / normalize_value(abs(est['dG']))
 
-                    for reagent in reaction['reagents']:
-                        reagent_cid_i = cid_to_index[reagent['cid']]
-                        A_dH[cid_i, reagent_cid_i] -= common_term / norm_est_dH
-                        A_dG[cid_i, reagent_cid_i] -= common_term / norm_est_dG
+            for cid, coeff in coeffs.items():
+                cid_i = cid_to_index[cid]
+                M_dH[row_i, cid_i] = coeff * w_dH
+                M_dG[row_i, cid_i] = coeff * w_dG
 
-                    for product in reaction['products']:
-                        product_cid_i = cid_to_index[product['cid']]
-                        A_dH[cid_i, product_cid_i] += common_term / norm_est_dH
-                        A_dG[cid_i, product_cid_i] += common_term / norm_est_dG
+            b_dH[row_i] = est['dH'] * w_dH
+            b_dG[row_i] = est['dG'] * w_dG
 
-                    b_dH[cid_i] += est['dH'] * cid_reaction_coeff / norm_est_dH
-                    b_dG[cid_i] += est['dG'] * cid_reaction_coeff / norm_est_dG
-
-        dH = lsqr(A_dH.tocsr(), b_dH)[0]
-        dG = lsqr(A_dG.tocsr(), b_dG)[0]
+        dH = lsqr(M_dH.tocsr(), b_dH)[0]
+        dG = lsqr(M_dG.tocsr(), b_dG)[0]
         cid_to_dH = {cid: dH[cid_i] for cid, cid_i in cid_to_index.items()}
         cid_to_dG = {cid: dG[cid_i] for cid, cid_i in cid_to_index.items()}
 
@@ -261,22 +260,16 @@ class ThermoLLMOps:
         self.store.write_jsonl(formation_thermo, self.chems_formation_thermo_llm_fn)
 
         def compute_reaction_thermo(reaction, cid_to_value):
-            balance = self.reactions.reactions_balance[reaction['rid']]
-            value = 0
-            for reagent in reaction['reagents']:
-                value -= balance[reagent['cid']] * cid_to_value[reagent['cid']]
-            for product in reaction['products']:
-                value += balance[product['cid']] * cid_to_value[product['cid']]
-            return value
+            coeffs = reaction_coeffs[reaction['rid']]
+            return sum(coeff * cid_to_value[cid] for cid, coeff in coeffs.items())
 
-        corrected_thermo = []
-        for reaction in reactions:
-            corrected_thermo.append(
-                {
-                    'rid': reaction['rid'],
-                    'dH': compute_reaction_thermo(reaction, cid_to_dH),
-                    'dG': compute_reaction_thermo(reaction, cid_to_dG),
-                }
-            )
+        corrected_thermo = [
+            {
+                'rid': reaction['rid'],
+                'dH': compute_reaction_thermo(reaction, cid_to_dH),
+                'dG': compute_reaction_thermo(reaction, cid_to_dG),
+            }
+            for reaction in reactions
+        ]
 
         self.store.write_jsonl(corrected_thermo, self.corrected_reactions_thermo_llm_fn)

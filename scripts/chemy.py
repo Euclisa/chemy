@@ -114,7 +114,6 @@ class Chemy:
         )
         self.thermo_llm = ThermoLLMOps(
             data_dir,
-            self.compounds,
             self.reactions,
             self.store,
             self.logger,
