@@ -20,6 +20,9 @@ from scripts.ops.reaction_llm_parser import ReactionLLMParser
 from scripts.ops.sql_export import SqlExporter
 from scripts.ops.solubility import SolubilityGenerator
 from scripts.ops.thermo import ThermoOps
+from scripts.ops.thermo_burcat import ThermoBurcatOps
+from scripts.ops.thermo_experiments import ThermoExperimentOps
+from scripts.ops.thermo_llm import ThermoLLMOps
 
 
 def make_chem(
@@ -267,6 +270,7 @@ def ops_context(compiler_context):
         completion_tokens_total=0,
         fetch_answer_str=lambda *args, **kwargs: "",
         _fetch_answer=lambda *args, **kwargs: "",
+        get_future_result=lambda future, executor: future.result(),
         restrict_ctt=lambda max_ctt: None,
         submit_entries_to_llm=lambda *args, **kwargs: None,
     )
@@ -303,6 +307,30 @@ def ops_context(compiler_context):
         compiler_context.compiler,
     )
     thermo = ThermoOps(data_dir, compiler_context.compounds)
+    thermo_burcat = ThermoBurcatOps(
+        data_dir,
+        compiler_context.compounds,
+        thermo,
+        compiler_context.store,
+        compiler_context.logger,
+    )
+    thermo_experiments = ThermoExperimentOps(
+        data_dir,
+        compiler_context.reactions,
+        compiler_context.store,
+        compiler_context.logger,
+        compiler_context.compiler,
+    )
+    thermo_llm = ThermoLLMOps(
+        data_dir,
+        compiler_context.reactions,
+        compiler_context.store,
+        compiler_context.logger,
+        compiler_context.compiler,
+        thermo,
+        llm_client,
+        reaction_llm,
+    )
     ord_parser = OrdParser(
         data_dir,
         compiler_context.compounds,
@@ -342,4 +370,7 @@ def ops_context(compiler_context):
         pubchem_ops=pubchem,
         sql_ops=sql,
         thermo_ops=thermo,
+        thermo_burcat_ops=thermo_burcat,
+        thermo_experiments_ops=thermo_experiments,
+        thermo_llm_ops=thermo_llm,
     )

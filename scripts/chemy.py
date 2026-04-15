@@ -14,6 +14,8 @@ from .ops.reaction_llm_parser import ReactionLLMParser
 from .ops.sql_export import SqlExporter
 from .ops.solubility import SolubilityGenerator
 from .ops.thermo import ThermoOps
+from .ops.thermo_burcat import ThermoBurcatOps
+from .ops.thermo_experiments import ThermoExperimentOps
 from .ops.thermo_llm import ThermoLLMOps
 from .ops.thermo_xtb import ThermoXtbOps
 
@@ -104,6 +106,20 @@ class Chemy:
         )
 
         self.thermo = ThermoOps(data_dir, self.compounds)
+        self.thermo_burcat = ThermoBurcatOps(
+            data_dir,
+            self.compounds,
+            self.thermo,
+            self.store,
+            self.logger,
+        )
+        self.thermo_experiments = ThermoExperimentOps(
+            data_dir,
+            self.reactions,
+            self.store,
+            self.logger,
+            self.properties,
+        )
         self.thermo_xtb = ThermoXtbOps(
             data_dir,
             self.compounds,

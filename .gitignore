@@ -31,4 +31,20 @@ data/structures
 
 *.pdf
 
+# Generated thermo evidence, solves, reports, and benchmark outputs.
+/data/thermo/evidence/
+/data/thermo/experiments/
+/data/thermo/reports/
+/data/thermo/solves/
+
+# Reproducible presentation outputs.
+/presentation/figures/
+/presentation/tables/
+/presentation/*.aux
+/presentation/*.log
+/presentation/*.nav
+/presentation/*.out
+/presentation/*.snm
+/presentation/*.toc
+
 .codex

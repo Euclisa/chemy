@@ -12,5 +12,7 @@ from .reaction_llm_parser import ReactionLLMParser
 from .sql_export import SqlExporter
 from .solubility import SolubilityGenerator
 from .thermo import ThermoOps
+from .thermo_burcat import ThermoBurcatOps
+from .thermo_experiments import ThermoExperimentOps
 from .thermo_llm import ThermoLLMOps
 from .thermo_xtb import ThermoXtbOps

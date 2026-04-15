@@ -5,8 +5,12 @@ import numpy as np
 
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
+from .thermo_solver import llm_sigma
+
 
 class ThermoLLMOps:
+    THERMO_PROMPT_VERSION = 'thermo_v2'
+
     def __init__(
         self,
         data_dir,
@@ -26,32 +30,46 @@ class ThermoLLMOps:
         self.llm_client = llm_client
         self.reaction_parser = reaction_parser
 
+        self.thermo_dir = os.path.join(data_dir, 'thermo')
+        self.evidence_dir = os.path.join(self.thermo_dir, 'evidence')
+        os.makedirs(self.evidence_dir, exist_ok=True)
+
         self.llm_thermo_dir = os.path.join(data_dir, 'thermo', 'llm')
         os.makedirs(self.llm_thermo_dir, exist_ok=True)
         self.reactions_thermo_llm_fn = os.path.join(self.llm_thermo_dir, 'reactions_thermo_llm.jsonl')
-        self.chems_formation_thermo_llm_fn = os.path.join(
-            self.llm_thermo_dir,
-            'chems_formation_thermo_llm.jsonl',
-        )
-        self.corrected_reactions_thermo_llm_fn = os.path.join(
-            self.llm_thermo_dir,
-            'corrected_reactions_thermo_llm.jsonl',
-        )
+
+        self.reaction_estimates_fn = os.path.join(self.evidence_dir, 'reaction_estimates.jsonl')
 
         store.register_sorting(self.reactions_thermo_llm_fn, 'rid')
-        store.register_sorting(self.chems_formation_thermo_llm_fn, 'cid')
-        store.register_sorting(self.corrected_reactions_thermo_llm_fn, 'rid')
+        store.register_sorting(self.reaction_estimates_fn, 'rid')
+
+    def _parse_thermo_line(self, line):
+        number = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
+        match = re.fullmatch(
+            rf'\s*(?:\d+[\.\)]\s*)?({number})\s*,\s*({number})\s*',
+            line,
+        )
+        if not match:
+            return None
+
+        return float(match.group(1)), float(match.group(2))
 
     def _get_reactions_thermo_batch(self, reactions):
         if not reactions:
             return None
 
         instruct = (
-            "You will be given a list of chemical reaction schemes. "
-            "Your task is to estimate the enthalpy and free energy of each reaction based on your chemical "
-            "knowledge. Assume standard conditions. Provide both values in kcal/mole as plain integers, "
-            "separated by a comma, one reaction per line. Format: <enthalpy>, <free energy>\n"
-            "Do not include anything other than the estimates."
+            "You will be given a list of balanced chemical reaction schemes. "
+            "Estimate the standard reaction enthalpy dHr°298 and standard reaction Gibbs free energy dGr°298 "
+            "for each reaction exactly as written. "
+            "Use 298.15 K and 1 bar. Assume pure substances in their usual standard states at 298.15 K; "
+            "if a phase is not shown, infer the usual standard state. "
+            "Report values in kcal per balanced reaction equation, not per mole of a selected reagent or product. "
+            "Prefer known standard formation thermochemistry when available; otherwise make your best chemically "
+            "reasonable estimate. "
+            "Return exactly one line per reaction, in the same order. "
+            "Each line must contain only two numbers separated by a comma: <dH>, <dG>. "
+            "Floats are allowed. Do not include units, labels, numbering, explanations, or extra text."
         )
 
         model = self.reaction_parser.gpt_oss
@@ -67,20 +85,27 @@ class ThermoLLMOps:
 
             results = []
             for i, line in enumerate(lines):
-                try:
-                    dH, dG = re.sub(r'\s+', '', line).split(',')
-                    dH_value = float(dH)
-                    dG_value = float(dG)
-                except (TypeError, ValueError):
-                    continue
+                parsed = self._parse_thermo_line(line)
+                if parsed is None:
+                    results = None
+                    break
+
+                dH_value, dG_value = parsed
 
                 results.append(
                     {
                         'rid': reactions[i]['rid'],
-                        'estimates': {'dH': dH_value, 'dG': dG_value, 'source': model},
+                        'estimates': {
+                            'dH': dH_value,
+                            'dG': dG_value,
+                            'source': model,
+                            'prompt': self.THERMO_PROMPT_VERSION,
+                        },
                     }
                 )
-            return results
+
+            if results is not None and len(results) == len(reactions):
+                return results
 
         self.logger.log_err(f"Failed to parse LLM response for batch of {len(reactions)} reactions")
         return None
@@ -177,99 +202,40 @@ class ThermoLLMOps:
 
     def filter_anomaly_llm_thermo(self):
         entries = self.store.load_jsonl(self.reactions_thermo_llm_fn)
-        entries = [entry for entry in entries if abs(entry['mean']['dH']) < 500 and abs(entry['mean']['dG']) < 100]
+        entries = [entry for entry in entries if abs(entry['mean']['dH']) < 500 and abs(entry['mean']['dG']) < 500]
         self.store.write_jsonl(entries, self.reactions_thermo_llm_fn)
 
-    def process_llm_thermo_estimates(self):
-        from scipy.sparse import lil_matrix
-        from scipy.sparse.linalg import lsqr
-
+    def normalize_reaction_estimates(self):
         thermo_entries = self.store.load_jsonl(self.reactions_thermo_llm_fn)
-        thermo_map = {entry['rid']: entry for entry in thermo_entries}
-        chem_reactions_occurence = self.properties.get_chems_reactions_occurence(self.properties.parsed_reactions)
 
-        def reactions_filter(reaction):
-            if reaction['rid'] not in thermo_map:
-                return False
-            if reaction['source'] == 'ord':
-                return False
-            all_cids = self.reactions.get_all_reaction_cids(reaction)
-            return not any(chem_reactions_occurence[cid] < 3 for cid in all_cids)
+        estimates = []
+        for entry in thermo_entries:
+            samples = entry.get('estimates') or []
+            if not samples:
+                continue
 
-        reactions = list(filter(reactions_filter, self.properties.parsed_reactions_balanced))
+            dHs = np.array([sample['dH'] for sample in samples], dtype=float)
+            dGs = np.array([sample['dG'] for sample in samples], dtype=float)
+            mean_dH = float(entry.get('mean', {}).get('dH', np.mean(dHs)))
+            mean_dG = float(entry.get('mean', {}).get('dG', np.mean(dGs)))
+            std_dH = float(entry.get('std', {}).get('dH', np.std(dHs)))
+            std_dG = float(entry.get('std', {}).get('dG', np.std(dGs)))
+            sources = sorted(set(sample.get('source') for sample in samples if sample.get('source')))
 
-        cid_to_index = {}
-        for reaction in reactions:
-            for cid in self.reactions.get_all_reaction_cids(reaction):
-                cid_to_index.setdefault(cid, len(cid_to_index))
+            estimates.append(
+                {
+                    'rid': entry['rid'],
+                    'source': 'llm',
+                    'model_sources': sources,
+                    'dH': mean_dH,
+                    'dG': mean_dG,
+                    'std_dH': std_dH,
+                    'std_dG': std_dG,
+                    'sigma_dH': llm_sigma(mean_dH, std_dH),
+                    'sigma_dG': llm_sigma(mean_dG, std_dG),
+                    'sample_count': len(samples),
+                }
+            )
 
-        def coeff_map(reaction):
-            balance = self.reactions.reactions_balance[reaction['rid']]
-            coeffs = {}
-            for reagent in reaction['reagents']:
-                coeffs[reagent['cid']] = -balance[reagent['cid']]
-            for product in reaction['products']:
-                coeffs[product['cid']] = balance[product['cid']]
-            return coeffs
-
-        def normalize_value(value):
-            # Clamp near-zero magnitudes to 1 to avoid inflating weights for small estimates
-            return value if abs(value) > 1 else 1
-
-        reaction_coeffs = {reaction['rid']: coeff_map(reaction) for reaction in reactions}
-
-        # Build design matrix M: one row per (reaction, estimate) pair.
-        # Each row is scaled by 1/normalize(est) so lsqr minimises the weighted residual directly,
-        # avoiding the numerical instability of forming normal equations explicitly.
-        rows = [
-            (reaction, est)
-            for reaction in reactions
-            for est in thermo_map[reaction['rid']]['estimates']
-        ]
-
-        n_rows, n_cols = len(rows), len(cid_to_index)
-        M_dH = lil_matrix((n_rows, n_cols))
-        M_dG = lil_matrix((n_rows, n_cols))
-        b_dH = np.zeros(n_rows)
-        b_dG = np.zeros(n_rows)
-
-        for row_i, (reaction, est) in self.logger.track(enumerate(rows), "Building LSQR matrix", total=n_rows):
-            coeffs = reaction_coeffs[reaction['rid']]
-            w_dH = 1.0 / normalize_value(abs(est['dH']))
-            w_dG = 1.0 / normalize_value(abs(est['dG']))
-
-            for cid, coeff in coeffs.items():
-                cid_i = cid_to_index[cid]
-                M_dH[row_i, cid_i] = coeff * w_dH
-                M_dG[row_i, cid_i] = coeff * w_dG
-
-            b_dH[row_i] = est['dH'] * w_dH
-            b_dG[row_i] = est['dG'] * w_dG
-
-        dH = lsqr(M_dH.tocsr(), b_dH)[0]
-        dG = lsqr(M_dG.tocsr(), b_dG)[0]
-        cid_to_dH = {cid: dH[cid_i] for cid, cid_i in cid_to_index.items()}
-        cid_to_dG = {cid: dG[cid_i] for cid, cid_i in cid_to_index.items()}
-
-        formation_thermo = []
-        for cid, cid_i in cid_to_index.items():
-            dHf = self.thermo.compute_formation_value(cid, dH[cid_i], cid_to_dH)
-            dGf = self.thermo.compute_formation_value(cid, dG[cid_i], cid_to_dG)
-            formation_thermo.append({'cid': cid, 'dHf': dHf, 'dGf': dGf})
-
-        self.store.write_jsonl(formation_thermo, self.chems_formation_thermo_llm_fn)
-
-        def compute_reaction_thermo(reaction, cid_to_value):
-            coeffs = reaction_coeffs[reaction['rid']]
-            return sum(coeff * cid_to_value[cid] for cid, coeff in coeffs.items())
-
-        corrected_thermo = [
-            {
-                'rid': reaction['rid'],
-                'dH': compute_reaction_thermo(reaction, cid_to_dH),
-                'dG': compute_reaction_thermo(reaction, cid_to_dG),
-            }
-            for reaction in reactions
-        ]
-
-        self.store.write_jsonl(corrected_thermo, self.corrected_reactions_thermo_llm_fn)
+        self.store.write_jsonl(estimates, self.reaction_estimates_fn)
+        return estimates

@@ -1,0 +1,186 @@
+\documentclass[aspectratio=169,10pt]{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{siunitx}
+\usepackage{xcolor}
+
+\graphicspath{{figures/}}
+
+\title[Chemy Thermochemistry]{Chemy Thermochemistry Pipeline}
+\subtitle{From reaction evidence to formation thermodynamics}
+\author{Chemy project}
+\date{\today}
+
+\newcommand{\dH}{\Delta H}
+\newcommand{\dG}{\Delta G}
+\newcommand{\dHf}{\Delta H_f^\circ}
+\newcommand{\dGf}{\Delta G_f^\circ}
+\newcommand{\dHr}{\Delta H_r^\circ}
+\newcommand{\dGr}{\Delta G_r^\circ}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Motivation}
+  \begin{itemize}
+    \item Reaction graphs contain rich thermochemical constraints, but compound-level formation data is sparse.
+    \item LLMs can provide broad reaction-level estimates, but the estimates are noisy and locally inconsistent.
+    \item Reference datasets such as BURCAT provide accurate anchors for a limited subset of compounds.
+    \item Goal: combine noisy reaction evidence and sparse references into a globally consistent formation thermochemistry table.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{End-to-End Pipeline}
+  \centering
+  \includegraphics[width=\textwidth]{pipeline.pdf}
+\end{frame}
+
+\begin{frame}{Reaction Data Acquisition}
+  \begin{itemize}
+    \item Start from a compound catalog with normalized names, CIDs, formulas, structures, and metadata.
+    \item Ask LLMs for documented reaction schemes involving target compounds.
+    \item Revalidate proposed reactions and keep confidence-scored valid reactions.
+    \item Parse names back to CIDs, deduplicate by canonical reaction ID, and balance stoichiometry.
+    \item Thermochemistry is estimated only for balanced reactions.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Thermochemistry Evidence}
+  \begin{itemize}
+    \item For each balanced reaction, sample LLM estimates of \(\Delta H^\circ_{r,298}\) and \(\Delta G^\circ_{r,298}\).
+    \item Store per-reaction mean, standard deviation, source model, and uncertainty scale.
+    \item Use values in kcal per balanced reaction equation.
+  \end{itemize}
+  \vspace{0.1em}
+  \centering
+  \scriptsize
+  \resizebox{0.64\textwidth}{!}{\input{tables/counts.tex}}
+\end{frame}
+
+\begin{frame}{LLM Reaction Estimate Distribution}
+  \centering
+  \includegraphics[width=0.92\textwidth]{llm_reaction_distribution.pdf}
+\end{frame}
+
+\begin{frame}{LLM Sampling Uncertainty}
+  \centering
+  \includegraphics[width=0.92\textwidth]{llm_uncertainty.pdf}
+\end{frame}
+
+\begin{frame}{BURCAT Reference Extraction}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.48\textwidth}
+      \begin{itemize}
+        \item Parse NASA polynomial records from BURCAT.
+        \item Read \(\dHf\) from coefficient blocks.
+        \item Compute \(\dGf\) using entropy and elemental reference states.
+        \item Match species to compounds primarily through CAS numbers.
+      \end{itemize}
+    \column{0.52\textwidth}
+      \includegraphics[width=\textwidth]{burcat_summary.pdf}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Global Formation Solve}
+  \begin{itemize}
+    \item Unknowns are compound formation values \(x_i = \Delta H^\circ_{f,i}\) or \(x_i = \Delta G^\circ_{f,i}\).
+    \item Each balanced reaction contributes a linear constraint:
+      \[
+        \dHr = \sum_i \nu_i \Delta H^\circ_{f,i},
+        \qquad
+        \dGr = \sum_i \nu_i \Delta G^\circ_{f,i}.
+      \]
+    \item Element and BURCAT references are additional direct constraints.
+    \item Solve a weighted sparse least-squares system, with lower uncertainty for trusted references.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Reference Injection Policies}
+  \small
+  \begin{itemize}
+    \item \textbf{Elements only}: train on elemental zero references; evaluate against all BURCAT compounds.
+    \item \textbf{All BURCAT}: train on all available BURCAT references; measures anchor consistency.
+    \item \textbf{80/20 split}: train on all elements plus 80\% of BURCAT compounds; evaluate on held-out 20\%.
+  \end{itemize}
+  \vspace{0.2em}
+  \centering
+  \includegraphics[width=0.72\textwidth]{policy_mae.pdf}
+\end{frame}
+
+\begin{frame}{Policy Metrics}
+  \centering
+  \resizebox{0.86\textwidth}{!}{\input{tables/metrics.tex}}
+  \vspace{0.4em}
+
+  \footnotesize
+  Errors are kcal/mol versus BURCAT references. The 80/20 test row is the primary held-out benchmark.
+\end{frame}
+
+\begin{frame}{Held-Out Formation Enthalpy}
+  \centering
+  \includegraphics[width=0.54\textwidth]{dhf_scatter_split_test.pdf}
+\end{frame}
+
+\begin{frame}{Held-Out Formation Free Energy}
+  \centering
+  \includegraphics[width=0.54\textwidth]{dgf_scatter_split_test.pdf}
+\end{frame}
+
+\begin{frame}{Error Distributions}
+  \centering
+  \includegraphics[width=0.86\textwidth]{error_distributions.pdf}
+\end{frame}
+
+\begin{frame}{Reaction-Level Correction}
+  \small
+  \begin{itemize}
+    \item The solved formation table induces reaction thermochemistry for every reaction in the graph.
+    \item Residuals show how much the global consistency solve moves individual LLM reaction estimates.
+  \end{itemize}
+  \centering
+  \includegraphics[width=0.74\textwidth]{reaction_residuals.pdf}
+\end{frame}
+
+\begin{frame}{Example Held-Out Compounds}
+  \centering
+  \resizebox{0.96\textwidth}{!}{\input{tables/examples.tex}}
+\end{frame}
+
+\begin{frame}{Limitations}
+  \begin{itemize}
+    \item LLM reaction thermochemistry is broad but noisy.
+    \item Phase and standard-state assumptions are still implicit in many reactions.
+    \item CAS matching gives useful coverage but does not resolve every BURCAT species.
+    \item Random holdout can still leak chemically similar compounds through the reaction network.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Next Steps}
+  \begin{itemize}
+    \item Add stricter reference policies: formula-family split and element-set split.
+    \item Improve phase-aware prompting and reference matching.
+    \item Calibrate LLM uncertainty using held-out residuals.
+    \item Use solved thermochemistry in reaction ranking and UI explanations.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Conclusion}
+  \begin{itemize}
+    \item Built a modular thermochemistry pipeline over the Chemy reaction graph.
+    \item Combined LLM reaction estimates, elemental anchors, and BURCAT references in one sparse solve.
+    \item Added policy-based experiments to separate calibration from held-out validation.
+    \item Produced reproducible figures and tables for presentation and future benchmarking.
+  \end{itemize}
+\end{frame}
+
+\end{document}
