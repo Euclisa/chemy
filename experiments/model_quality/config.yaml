@@ -1,33 +1,14 @@
 seed: 1729
 acceptance_threshold: 0.4
-audit_rounds: 9
-repair_validation_rounds: 9
 batch_size: 5
+max_workers: 2
+chemy_data_dir: data
 
-cheap_model: openai/gpt-oss-120b
 strong_model: google/gemini-2.5-pro
+candidate_models: ["openai/gpt-oss-120b", "qwen/qwen3-235b-a22b", "x-ai/grok-4-fast"]
 
-verdict_path: data/raw_reactions/verdict
-
-samples:
-  high_accept:
-    confidence_min: 0.8
-    confidence_max: null
-    n: 80
-  borderline_accept:
-    confidence_min: 0.4
-    confidence_max: 0.6
-    n: 80
-  borderline_reject:
-    confidence_min: 0.2
-    confidence_max: 0.4
-    n: 80
-  low_reject:
-    confidence_min: 0.0
-    confidence_max: 0.1
-    n: 40
-
-repair:
-  confidence_min: 0.2
-  confidence_max: 0.4
-  n: 80
+bakeoff_presets: ["wiki_crc_rp", "simple_inorganic_wiki_rp", "simple_organic_wiki_rp", "oxidizers_wiki_rp", "corrosive_wiki_rp", "top_rare_rp", "wiki_uncommon_p"]
+tasks_per_band: 5
+complexity_bands: ["simple", "medium", "hard"]
+generation_self_review: true
+gold_rounds: 3

@@ -1,8 +1,7 @@
-import json
-
 from .schema import is_valid_reaction_obj
 from .prompts import REPAIR_BATCH_INSTRUCT, format_repair_candidates
 from .validator import ACCEPT_THR, is_confident
+from .services import parse_repair_response
 from scripts.infra.batch_runner import run_batch
 from scripts.infra.fallback import with_fallback
 
@@ -119,24 +118,7 @@ class RawReactionsRepairer:
         return candidates
 
     def _parse_repair_response(self, response, expected_count):
-        parsed = []
-        for line in response.strip().split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-            if line.lower() == 'null':
-                parsed.append(None)
-                continue
-            try:
-                entry = json.loads(line)
-            except (json.JSONDecodeError, TypeError):
-                return None
-            if not isinstance(entry, dict):
-                return None
-            parsed.append(entry)
-        if len(parsed) != expected_count:
-            return None
-        return parsed
+        return parse_repair_response(response, expected_count)
 
     def _get_fix(self, candidates, model, max_retries=2):
         """Attempt to get repair suggestions from a single model.

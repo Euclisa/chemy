@@ -1,13 +1,10 @@
 from .fetcher import RawReactionsFetcher
 from .layout import RawReactionsLayout
 from .models import DEFAULT_MODELS
-from .presets import (
-    POSITION_PRODUCT,
-    POSITION_REAGENT,
-    get_preset,
-)
+from .presets import get_preset
 from .repairer import RawReactionsRepairer
 from .schema import is_valid_reaction_obj
+from .services import RawReactionTaskBuilder
 from .validator import ACCEPT_THR, RawReactionsValidator, is_confident
 
 
@@ -19,6 +16,7 @@ class RawReactionsPipeline:
         self._store = store
         self._logger = logger
         self._parser = parser
+        self._task_builder = RawReactionTaskBuilder(reactions)
 
         store.register_vault(self.layout.verdict(), 'verdict_')
 
@@ -41,23 +39,7 @@ class RawReactionsPipeline:
 
     def _build_existing_reactions_context(self):
         llm_reactions = self._store.load_jsonl(self._parser.reactions_parsed_llm_fn)
-
-        by_cid = {}
-        for react in llm_reactions:
-            try:
-                reaction_str = self._reactions.get_reaction_as_str(react)
-            except (KeyError, TypeError):
-                continue
-            for entry in react['reagents']:
-                by_cid.setdefault(entry['cid'], {}).setdefault(
-                    POSITION_REAGENT, []
-                ).append(reaction_str)
-            for entry in react['products']:
-                by_cid.setdefault(entry['cid'], {}).setdefault(
-                    POSITION_PRODUCT, []
-                ).append(reaction_str)
-
-        return by_cid
+        return self._task_builder.build_existing_reactions_context(llm_reactions)
 
     def fetch(self, preset_name, max_workers=1, run=None):
         existing = self._build_existing_reactions_context()

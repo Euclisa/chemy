@@ -1,5 +1,6 @@
 from .prompts import VALIDATE_BATCH_INSTRUCT, format_reactions_for_validation
 from .schema import is_valid_reaction_obj
+from .services import RawReactionValidationService, parse_indexed_verdicts
 from scripts.infra.batch_runner import run_batch
 from scripts.infra.fallback import with_fallback
 
@@ -20,12 +21,16 @@ class RawReactionsValidator:
         self.layout = layout
         self.parser = parser
         self.models = models
+        self.service = RawReactionValidationService(llm_client, parser)
 
     def _str_verdict_to_bool(self, verdict):
         verdict = verdict.lower()
         return 'invalid' not in verdict and 'valid' in verdict
 
     def _extract_verdicts(self, response):
+        verdicts = parse_indexed_verdicts(response, len(response.split('\n')))
+        if verdicts is not None:
+            return verdicts
         return [self._str_verdict_to_bool(v) for v in response.split('\n')]
 
     def _get_verdicts_safe(self, batch, model, max_retries=3):
@@ -63,64 +68,32 @@ class RawReactionsValidator:
         model,
         max_rounds=9,
         acceptance_threshold=ACCEPT_THR,
+        early_stop=True,
     ):
         """Validate a batch of reactions with a single model.
 
         Returns a list of result dicts on success, or None if the model
         produces persistent format errors (signal to caller to try another model).
         """
-        active = list(range(len(reactions)))
-        positives = [0] * len(reactions)
-        rounds_done = [0] * len(reactions)
-        results = [None] * len(reactions)
-
-        for round_i in range(max_rounds):
-            if not active:
-                break
-
-            batch = [reactions[i] for i in active]
-            verdicts = self._get_verdicts_safe(batch, model)
-
-            if verdicts is None:
-                self.logger.log_warn(
-                    f"Falling to another model due to format errors ('{model}')"
-                )
-                return None
-
-            remaining = max_rounds - round_i - 1
-            next_active = []
-            for j, idx in enumerate(active):
-                rounds_done[idx] += 1
-                positives[idx] += int(verdicts[j])
-
-                best_possible = (positives[idx] + remaining) / max_rounds
-                worst_possible = positives[idx] / max_rounds
-
-                if (
-                    best_possible < acceptance_threshold
-                    or worst_possible >= acceptance_threshold
-                ):
-                    result = self._build_result(
-                        reactions[idx], positives[idx], rounds_done[idx], model,
-                    )
-                    results[idx] = result
-                    self.logger.log(
-                        f"Validated reaction; "
-                        f"confidence: {result['confidence']:.2f} "
-                        f"({positives[idx]}/{rounds_done[idx]}); "
-                        f"CTT: {self.llm_client.completion_tokens_total}"
-                    )
-                else:
-                    next_active.append(idx)
-
-            active = next_active
-
-        for idx in active:
-            result = self._build_result(
-                reactions[idx], positives[idx], rounds_done[idx], model,
+        results = self.service.validate_entries(
+            reactions,
+            model=model,
+            max_rounds=max_rounds,
+            acceptance_threshold=acceptance_threshold,
+            early_stop=early_stop,
+        )
+        if results is None:
+            self.logger.log_warn(
+                f"Falling to another model due to format errors ('{model}')"
             )
-            results[idx] = result
-
+            return None
+        for result in results:
+            self.logger.log(
+                f"Validated reaction; "
+                f"confidence: {result['confidence']:.2f} "
+                f"({result['positives']}/{result['rounds']}); "
+                f"CTT: {self.llm_client.completion_tokens_total}"
+            )
         return results
 
     def _log_skip_stats(self, preset_name, stats):

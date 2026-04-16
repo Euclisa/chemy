@@ -12,7 +12,15 @@ from scripts.ops.raw_reactions.presets import (
     get_preset,
 )
 from scripts.ops.raw_reactions.prompts import build_fetch_prompt, format_structured_reaction
+from scripts.ops.raw_reactions.records import ReactionTask
+from scripts.ops.raw_reactions.services import (
+    RawReactionEvaluator,
+    RawReactionValidationService,
+    reaction_output_id,
+    stable_hash,
+)
 from scripts.ops.raw_reactions.validator import ACCEPT_THR
+from experiments.model_quality.sample import split_complexity_bands
 
 
 def test_bigsol_parser_groups_valid_rows_and_converts_units(ops_context):
@@ -273,6 +281,52 @@ def test_fetch_prompt_uses_position_wording_and_context():
     assert "Hydrogen + Oxygen -> Water" in prompt
 
 
+def test_raw_reaction_task_and_output_hashes_are_deterministic():
+    payload = {
+        "cid": 1,
+        "compound_name": "Water",
+        "preset": "default_rp",
+        "position": POSITION_ANY,
+        "scope": "documented",
+        "complexity_band": "simple",
+        "mode": "cold_start",
+        "existing_reactions": [],
+    }
+
+    assert stable_hash(payload, "task") == stable_hash(payload, "task")
+    reaction_a = {
+        "reagents": [{"name": "Water", "phase": "l"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+        "solvent": None,
+        "catalyst": None,
+    }
+    reaction_b = {
+        "reagents": [{"phase": "l", "name": "Water"}],
+        "products": [{"phase": "l", "name": "Ethanol"}],
+        "catalyst": None,
+        "solvent": None,
+    }
+
+    assert reaction_output_id(reaction_a) == reaction_output_id(reaction_b)
+
+
+def test_complexity_band_assignment_uses_low_middle_high_fixture_compounds():
+    chems = [
+        {"cid": 1, "cmpdname": "a", "bertz_complexity": 1, "heavy_count": 1},
+        {"cid": 2, "cmpdname": "b", "bertz_complexity": 2, "heavy_count": 2},
+        {"cid": 3, "cmpdname": "c", "bertz_complexity": 3, "heavy_count": 3},
+        {"cid": 4, "cmpdname": "d", "bertz_complexity": 4, "heavy_count": 4},
+        {"cid": 5, "cmpdname": "e", "bertz_complexity": 5, "heavy_count": 5},
+        {"cid": 6, "cmpdname": "f", "bertz_complexity": 6, "heavy_count": 6},
+    ]
+
+    bands = split_complexity_bands(chems)
+
+    assert [chem["cid"] for chem in bands["simple"]] == [1, 2]
+    assert [chem["cid"] for chem in bands["medium"]] == [3, 4]
+    assert [chem["cid"] for chem in bands["hard"]] == [5, 6]
+
+
 def test_reaction_llm_parser_structured_parsing_preserves_phase_and_note(ops_context):
     reaction_obj = {
         "reagents": [{"name": "Water", "phase": "l", "note": "neat"}],
@@ -289,6 +343,66 @@ def test_reaction_llm_parser_structured_parsing_preserves_phase_and_note(ops_con
     assert reaction["products"][0]["cid"] == ops_context.ethanol["cid"]
     assert reaction["products"][0]["phase"] == "l"
     assert "note" not in reaction["products"][0]
+
+
+def test_raw_reaction_evaluator_checks_target_position(ops_context):
+    task = ReactionTask(
+        task_id="task:1",
+        cid=ops_context.water["cid"],
+        compound_name="Water",
+        preset="default_p",
+        position=POSITION_PRODUCT,
+        scope="documented",
+        prompt="",
+    )
+    reaction = {
+        "reagents": [{"name": "Ethanol", "phase": "l"}],
+        "products": [{"name": "Water", "phase": "l"}],
+        "solvent": None,
+        "catalyst": None,
+    }
+
+    candidate = RawReactionEvaluator(
+        ops_context.reaction_llm,
+        ops_context.reactions,
+    ).evaluate_reaction(task, ops_context.reaction_llm.gpt_oss, reaction, 0)
+
+    assert candidate.target_compound_present
+    assert candidate.target_position_correct
+    assert candidate.parsed
+
+
+def test_fixed_round_validation_does_not_early_stop(ops_context, monkeypatch):
+    calls = []
+
+    def fake_fetch(message, model, **kwargs):
+        calls.append(message)
+        return "1. Valid"
+
+    monkeypatch.setattr(ops_context.llm_client, "fetch_answer_str", fake_fetch)
+    service = RawReactionValidationService(
+        ops_context.llm_client,
+        ops_context.reaction_llm,
+    )
+    reaction = {
+        "cid": ops_context.water["cid"],
+        "reaction": {
+            "reagents": [{"name": "Water", "phase": "l"}],
+            "products": [{"name": "Ethanol", "phase": "l"}],
+        },
+    }
+
+    results = service.validate_entries(
+        [reaction],
+        model=ops_context.reaction_llm.gpt_oss,
+        max_rounds=3,
+        acceptance_threshold=ACCEPT_THR,
+        early_stop=False,
+    )
+
+    assert len(calls) == 3
+    assert results[0]["validation_rounds"] == 3
+    assert results[0]["validation_confidence"] == 1.0
 
 
 def test_reaction_llm_parser_raw_parsing_filters_invalid_and_deduplicates(ops_context):

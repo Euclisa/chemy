@@ -38,6 +38,9 @@ data/structures
 /data/thermo/reports/
 /data/thermo/solves/
 
+# Local model-quality smoke-run outputs.
+/experiments/model_quality/data_smoke/
+
 # Reproducible presentation outputs.
 /presentation/figures/
 /presentation/tables/

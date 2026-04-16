@@ -1,8 +1,10 @@
-import json
-
-from .prompts import build_fetch_prompt, build_revalidate_prompt
 from .presets import POSITION_ANY, POSITION_PRODUCT, POSITION_REAGENT
 from .schema import is_valid_compound, is_valid_reaction_obj, normalize_reaction_obj
+from .services import (
+    RawReactionGenerationService,
+    RawReactionTaskBuilder,
+    parse_reactions_jsonl,
+)
 from scripts.infra.batch_runner import run_batch
 from scripts.infra.fallback import with_fallback
 
@@ -10,31 +12,6 @@ from scripts.infra.fallback import with_fallback
 _is_valid_compound = is_valid_compound
 _is_valid_reaction_obj = is_valid_reaction_obj
 _normalize_reaction_obj = normalize_reaction_obj
-
-
-def _count(stats, key):
-    if stats is not None:
-        stats[key] = stats.get(key, 0) + 1
-
-
-def parse_reactions_jsonl(response, stats=None):
-    reactions = []
-    for line in response.strip().split('\n'):
-        line = line.strip()
-        if not line or line.lower() == 'null':
-            _count(stats, 'null_or_empty')
-            continue
-        try:
-            obj = json.loads(line)
-        except (json.JSONDecodeError, TypeError):
-            _count(stats, 'malformed_json')
-            continue
-        if not is_valid_reaction_obj(obj):
-            _count(stats, 'invalid_schema')
-            continue
-        reactions.append(normalize_reaction_obj(obj))
-        _count(stats, 'accepted')
-    return reactions
 
 
 class RawReactionsFetcher:
@@ -47,29 +24,14 @@ class RawReactionsFetcher:
         self.logger = logger
         self.layout = layout
         self.models = models
-        self._existing_by_cid = {}
+        self.task_builder = RawReactionTaskBuilder()
+        self.generator = RawReactionGenerationService(llm_client)
 
     def set_existing_reactions(self, existing_by_cid):
-        self._existing_by_cid = existing_by_cid or {}
+        self.task_builder.set_existing_reactions(existing_by_cid)
 
     def _get_existing_context(self, cid, position):
-        by_position = self._existing_by_cid.get(cid, {})
-        if position == POSITION_REAGENT:
-            reactions = by_position.get(POSITION_REAGENT, [])
-        elif position == POSITION_PRODUCT:
-            reactions = by_position.get(POSITION_PRODUCT, [])
-        elif position == POSITION_ANY:
-            reactions = []
-            seen = set()
-            for side in (POSITION_REAGENT, POSITION_PRODUCT):
-                for reaction in by_position.get(side, []):
-                    if reaction in seen:
-                        continue
-                    seen.add(reaction)
-                    reactions.append(reaction)
-        else:
-            raise ValueError(f"Unknown position: {position!r}")
-        return reactions[:self.MAX_EXISTING_CONTEXT]
+        return self.task_builder.get_existing_context(cid, position)
 
     def _log_parse_stats(self, chem_name, label, stats):
         skipped = sum(
@@ -88,37 +50,33 @@ class RawReactionsFetcher:
         when the model returns no usable reactions.
         """
         chem_name = chem['cmpdname']
-        existing = self._get_existing_context(chem['cid'], preset.position)
-        fetch_prompt = build_fetch_prompt(
-            chem_name, preset.position, preset.scope, existing,
-        )
-
-        response = self.llm_client.fetch_answer_str(fetch_prompt, model)
-        stats = {}
-        reactions = parse_reactions_jsonl(response, stats)
+        task = self.task_builder.build_task(chem, preset)
+        result = self.generator.generate(task, model, self_review=True)
+        stats = result.parse_stats
         self._log_parse_stats(chem_name, f"Fetch response from '{model}'", stats)
 
+        if result.reviewed_parse_stats:
+            self._log_parse_stats(
+                chem_name,
+                f"Revalidation response from '{model}'",
+                result.reviewed_parse_stats,
+            )
+
+        if result.error is not None:
+            self.logger.log_warn(
+                f"Fetch failed for '{chem_name}' with '{model}': {result.error}"
+            )
+            return None
+
+        reactions = list(result.reactions)
         if not reactions:
             return None
 
-        reactions_jsonl_str = '\n'.join(json.dumps(r) for r in reactions)
-        revalidate_prompt = build_revalidate_prompt(reactions_jsonl_str)
-        revalidated_response = self.llm_client.fetch_answer_str(revalidate_prompt, model)
-        stats = {}
-        revalidated = parse_reactions_jsonl(revalidated_response, stats)
-        self._log_parse_stats(chem_name, "Revalidation response", stats)
-
-        if not revalidated:
-            self.logger.log_warn(
-                f"Revalidation returned no results for '{chem_name}'. Using original."
-            )
-            revalidated = reactions
-
         self.logger.log(
-            f"Got {len(revalidated)} reactions for '{chem_name}' with '{model}'; "
+            f"Got {len(reactions)} reactions for '{chem_name}' with '{model}'; "
             f"CTT: {self.llm_client.completion_tokens_total}"
         )
-        return {'cid': chem['cid'], 'reactions': revalidated}
+        return {'cid': chem['cid'], 'reactions': reactions}
 
     def _fetch_one_with_fallback(self, chem, preset):
         result = with_fallback(
