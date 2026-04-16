@@ -1,0 +1,33 @@
+seed: 1729
+acceptance_threshold: 0.4
+audit_rounds: 9
+repair_validation_rounds: 9
+batch_size: 5
+
+cheap_model: openai/gpt-oss-120b
+strong_model: google/gemini-2.5-pro
+
+verdict_path: data/raw_reactions/verdict
+
+samples:
+  high_accept:
+    confidence_min: 0.8
+    confidence_max: null
+    n: 80
+  borderline_accept:
+    confidence_min: 0.4
+    confidence_max: 0.6
+    n: 80
+  borderline_reject:
+    confidence_min: 0.2
+    confidence_max: 0.4
+    n: 80
+  low_reject:
+    confidence_min: 0.0
+    confidence_max: 0.1
+    n: 40
+
+repair:
+  confidence_min: 0.2
+  confidence_max: 0.4
+  n: 80
