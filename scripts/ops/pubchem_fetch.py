@@ -68,6 +68,10 @@ class PubChemFetcher:
                         'inchikey': chem.inchikey,
                         'complexity': chem.complexity
                     }
+                    chem_pc_data = self.compounds.process_chem_single(chem_pc_data, force=True)
+                    if not chem_pc_data:
+                        self.logger.log(f"Fetched compound for smiles '{chem_smiles}' was rejected during processing")
+                        continue
 
                 except Exception as e:
                     self.logger.log(f"Exception during fetching: {e}")
@@ -90,7 +94,7 @@ class PubChemFetcher:
         with open(out_fn, 'a') as f_out, open(self.compounds.chem_names_blacklisted_fn, 'a') as f_out_black:
             for entry in names_list:
                 chem_name_norm, chem_name, cnt = entry['norm_name'], entry['name'], entry['count']
-                if chem_name_norm in self.compounds.name_cid_map:
+                if chem_name_norm in self.compounds.name_cids_map:
                     continue
                 if chem_name_norm in blacklist:
                     continue
@@ -114,6 +118,10 @@ class PubChemFetcher:
                     'inchikey': chem.inchikey,
                     'complexity': chem.complexity
                 }
+                chem_pc_data = self.compounds.process_chem_single(chem_pc_data, force=True)
+                if not chem_pc_data:
+                    self.logger.log(f"Fetched compound for name '{chem_name}' was rejected during processing")
+                    continue
 
                 if chem.inchikey in self.compounds.inchikey_cid_map:
                     curr_cid = self.compounds.inchikey_cid_map[chem.inchikey]
@@ -157,6 +165,10 @@ class PubChemFetcher:
                     'inchikey': chem.inchikey,
                     'complexity': chem.complexity
                 }
+                chem_pc_data = self.compounds.process_chem_single(chem_pc_data, force=True)
+                if not chem_pc_data:
+                    self.logger.log(f"Fetched compound for CID '{cid}' was rejected during processing")
+                    continue
 
                 f_out.write(json.dumps(chem_pc_data) + '\n')
                 f_out.flush()

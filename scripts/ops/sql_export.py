@@ -60,7 +60,12 @@ class SqlExporter:
                     (chem['cid'], syn)
                     for chem in self.compounds.chems_mapped
                     for syn in chem['cmpdsynonym']
-                    if syn
+                    if (
+                        syn
+                        and self.compounds.unique_name_cid_map.get(
+                            self.compounds.normalize_chem_name(syn, is_clean=True)
+                        ) == chem['cid']
+                    )
                 ]
                 execute_values_advance(cur, sql, data)
 

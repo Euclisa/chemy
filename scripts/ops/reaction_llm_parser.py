@@ -79,7 +79,7 @@ class ReactionLLMParser:
                     continue
 
                 clean = self.compounds.clean_chem_name(name)
-                cid = self.compounds.name_cid_map.get(norm)
+                cid = self.compounds.unique_name_cid_map.get(norm)
                 if cid is None:
                     parse_success = False
                     unmapped_names.add((norm, clean))
@@ -105,4 +105,3 @@ class ReactionLLMParser:
 
         reaction = self.reactions.assemble_reaction({'reagents': reagents, 'products': products})
         return reaction, unmapped_names
-

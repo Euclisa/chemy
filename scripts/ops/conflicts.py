@@ -5,19 +5,89 @@ class ConflictResolver:
         self.store = store
         self.properties = properties
 
-    def __update_cids_filtered_synonyms(self, new_entries):
-        cids_filtered_synonyms = dict(self.compounds.cids_filtered_synonyms)
-        for cid, synonyms in new_entries.items():
-            if cid < 0 or not synonyms:
-                continue
-            cids_filtered_synonyms.setdefault(cid, set()).update(synonyms)
-
-        res_entries = [
-            {'cid': cid, 'synonyms': sorted(list(syns))}
-            for cid, syns in cids_filtered_synonyms.items()
+    def _build_synonym_filter_decision(self, cid, norm_synonym, conflict_cids):
+        chem = self.compounds.cid_chem_map[cid]
+        raw_synonyms = [
+            syn for syn in chem['cmpdsynonym']
+            if self.compounds.normalize_chem_name(syn, is_clean=True) == norm_synonym
         ]
-        self.store.write_jsonl(res_entries, self.compounds.cids_filtered_synonyms_fn)
-        self.compounds.clear_cached_property('cids_filtered_synonyms')
+        return {
+            'cid': cid,
+            'norm_synonym': norm_synonym,
+            'raw_synonyms': raw_synonyms,
+            'decision': 'remove_synonym',
+            'reason': 'manual_conflict',
+            'source': 'manual_conflict_resolver',
+            'other_cids': [other_cid for other_cid in conflict_cids if other_cid != cid],
+        }
+
+    def find_synonym_conflicts(self, only_relevant=True):
+        conflict_map = {
+            name: cids
+            for name, cids in self.compounds.name_cids_map.items()
+            if len([cid for cid in cids if cid > 0]) > 1
+        }
+        if only_relevant:
+            relevant_names = self.properties.get_parsed_reactions_participants_norm_names()
+            conflict_map = {
+                name: cids for name, cids in conflict_map.items() if name in relevant_names
+            }
+
+        return conflict_map
+
+    def apply_synonym_decisions(self, decisions, cids_to_delete=None):
+        cids_to_delete = set() if cids_to_delete is None else set(cids_to_delete)
+        self.compounds.update_cids_blacklist(cids_to_delete)
+
+        decisions = [
+            self.compounds._normalize_synonym_filter_decision(decision)
+            for decision in decisions
+            if decision['cid'] > 0
+        ]
+        self.compounds.write_synonym_filter_decisions(
+            list(self.compounds.synonym_filter_decisions) + decisions
+        )
+
+        cids_syns_to_del = dict()
+        for decision in decisions:
+            if decision['decision'] != 'remove_synonym':
+                continue
+            cids_syns_to_del.setdefault(decision['cid'], set()).add(decision['norm_synonym'])
+
+        resolved_chems = []
+        for chem in self.compounds.chems:
+            cid = chem['cid']
+            if cid in cids_to_delete:
+                continue
+
+            if cid in cids_syns_to_del and cids_syns_to_del[cid]:
+                syns_to_del = cids_syns_to_del[cid]
+                chem['cmpdsynonym'] = list(
+                    filter(
+                        lambda value: self.compounds.normalize_chem_name(
+                            value,
+                            is_clean=True,
+                        ) not in syns_to_del,
+                        chem['cmpdsynonym'],
+                    )
+                )
+                if not chem['cmpdsynonym'] and self.compounds.is_chem_mapped(chem):
+                    self.logger.log(f"Removed compound {cid} (no synonyms left)")
+                    continue
+
+                if self.compounds.normalize_chem_name(
+                    chem['cmpdname'],
+                    is_clean=True,
+                ) in syns_to_del:
+                    if self.compounds.is_chem_mapped(chem):
+                        chem['cmpdname'] = chem['cmpdsynonym'][0]
+                    else:
+                        chem['cmpdname'] = self.compounds.unknown_name_ph
+                        chem['cmpdsynonym'] = []
+
+            resolved_chems.append(chem)
+
+        self.compounds.update_chems(resolved_chems)
 
     def _display_conflict_table_cid(self, conflict_i, conflict_str, cid1, cid2, display_compound=None):
         chem1 = self.compounds.cid_chem_map[cid1]
@@ -82,28 +152,12 @@ class ConflictResolver:
                 display_compound=display_compound,
             )
 
-        conflict_map = dict()
         cids_to_delete = set()
-        cids_syns_to_del = dict()
+        decisions = []
         stop = False
         save = True
         try:
-            for chem in self.compounds.chems:
-                cid = chem['cid']
-                cids_syns_to_del[cid] = set()
-                norm_syns = {
-                    self.compounds.normalize_chem_name(syn, is_clean=True)
-                    for syn in chem['cmpdsynonym']
-                }
-                for norm_name in norm_syns:
-                    conflict_map.setdefault(norm_name, []).append(cid)
-
-            conflict_map = {name: cids for name, cids in conflict_map.items() if len(cids) > 1}
-            if only_relevant:
-                relevant_names = self.properties.get_parsed_reactions_participants_norm_names()
-                conflict_map = {
-                    name: cids for name, cids in conflict_map.items() if name in relevant_names
-                }
+            conflict_map = self.find_synonym_conflicts(only_relevant=only_relevant)
 
             self.logger.print()
             self.logger.print(f"{len(conflict_map)} conflicting names pending resolution")
@@ -130,16 +184,24 @@ class ConflictResolver:
                         decision = 'c2'
 
                     if decision == 's0':
-                        cids_syns_to_del[cid1].add(norm_name)
-                        cids_syns_to_del[cid2].add(norm_name)
+                        decisions.append(
+                            self._build_synonym_filter_decision(cid1, norm_name, conflict_cids)
+                        )
+                        decisions.append(
+                            self._build_synonym_filter_decision(cid2, norm_name, conflict_cids)
+                        )
                         conflict_cids = conflict_cids[2:]
                         self.logger.print("* Removed synonym from both compounds")
                     elif decision == 's1':
-                        cids_syns_to_del[cid2].add(norm_name)
+                        decisions.append(
+                            self._build_synonym_filter_decision(cid2, norm_name, conflict_cids)
+                        )
                         conflict_cids.pop(1)
                         self.logger.print(f"* Removed synonym from CID {cid2}")
                     elif decision == 's2':
-                        cids_syns_to_del[cid1].add(norm_name)
+                        decisions.append(
+                            self._build_synonym_filter_decision(cid1, norm_name, conflict_cids)
+                        )
                         conflict_cids.pop(0)
                         self.logger.print(f"* Removed synonym from CID {cid1}")
                     elif decision == 'c0':
@@ -173,40 +235,7 @@ class ConflictResolver:
             if not save:
                 return
 
-            self.compounds.update_cids_blacklist(cids_to_delete)
-            self.__update_cids_filtered_synonyms(cids_syns_to_del)
-
-            resolved_chems = []
-            for chem in self.compounds.chems:
-                cid = chem['cid']
-                if cid not in cids_to_delete:
-                    if cid in cids_syns_to_del and cids_syns_to_del[cid]:
-                        syns_to_del = cids_syns_to_del[cid]
-                        chem['cmpdsynonym'] = list(
-                            filter(
-                                lambda value: self.compounds.normalize_chem_name(
-                                    value,
-                                    is_clean=True,
-                                ) not in syns_to_del,
-                                chem['cmpdsynonym'],
-                            )
-                        )
-                        if not chem['cmpdsynonym'] and self.compounds.is_chem_mapped(chem):
-                            self.logger.log(f"Removed compound {cid} (no synonyms left)")
-                            continue
-
-                        if self.compounds.normalize_chem_name(
-                            chem['cmpdname'],
-                            is_clean=True,
-                        ) in syns_to_del:
-                            if self.compounds.is_chem_mapped(chem):
-                                chem['cmpdname'] = chem['cmpdsynonym'][0]
-                            else:
-                                chem['cmpdname'] = self.compounds.unknown_name_ph
-                                chem['cmpdsynonym'] = []
-                    resolved_chems.append(chem)
-
-            self.compounds.update_chems(resolved_chems)
+            self.apply_synonym_decisions(decisions, cids_to_delete=cids_to_delete)
 
     def resolve_conflicting_inchi(self):
         self.logger.print("Resolve options:")

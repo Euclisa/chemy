@@ -3,6 +3,8 @@ import sys
 from contextlib import contextmanager
 from types import ModuleType, SimpleNamespace
 
+from tests.conftest import make_chem
+
 
 def _long_description():
     return (
@@ -114,6 +116,42 @@ def test_pubchem_dump_ingestion_adds_new_mapped_compounds_without_overwriting_ex
     assert ops_context.compounds.cid_chem_map[2]["cmpdname"] == ops_context.ethanol["cmpdname"]
 
 
+def test_pubchem_direct_fetch_processes_synonyms_before_writing(ops_context, tmp_path, monkeypatch):
+    acetone = SimpleNamespace(
+        cid=500,
+        iupac_name="Acetone",
+        synonyms=["Acetone", "solid", "7732-18-5"],
+        molecular_formula="C3H6O",
+        molecular_weight=58.08,
+        charge=0,
+        smiles="CC(=O)C",
+        inchi="InChI=1S/C3H6O/c1-3(2)4/h1-2H3",
+        inchikey="CSCPPACGZOOCGX-UHFFFAOYSA-N",
+        complexity=35.0,
+    )
+    fake_pubchempy = ModuleType("pubchempy")
+    fake_pubchempy.get_compounds = lambda cid, namespace: [acetone]
+    monkeypatch.setitem(sys.modules, "pubchempy", fake_pubchempy)
+
+    out_fn = tmp_path / "pubchem.jsonl"
+    ops_context.pubchem_ops.fetch_chems_cids_from_pubchem([500], str(out_fn))
+
+    entries = ops_context.store.load_jsonl(str(out_fn))
+    assert len(entries) == 1
+    assert entries[0]["cmpdsynonym"] == ["Acetone"]
+
+
+def test_reaction_name_lookup_fails_closed_on_ambiguous_synonyms(ops_context):
+    alpha = make_chem(501, "Alpha", "CCN", synonyms=["Alpha", "Shared"], complexity=20)
+    beta = make_chem(502, "Beta", "CCCl", synonyms=["Beta", "Shared"], complexity=20)
+    ops_context.compounds.update_chems(list(ops_context.compounds.chems) + [alpha, beta])
+
+    reaction, unmapped = ops_context.reaction_llm.parse_reaction_scheme("Shared + Water -> Methanol")
+
+    assert reaction is None
+    assert ("shared", "Shared") in unmapped
+
+
 def test_sql_exporter_emits_relational_rows_from_compiled_pipeline_state(ops_context, monkeypatch):
     reaction = {
         "reagents": [
@@ -169,6 +207,10 @@ def test_sql_exporter_emits_relational_rows_from_compiled_pipeline_state(ops_con
     ops_context.compiler.clear_cached_property("reactions_details")
     ops_context.compiler.clear_cached_property("parsed_reactions")
     ops_context.compiler.clear_cached_property("parsed_reactions_balanced")
+
+    alpha = make_chem(501, "Alpha", "CCN", synonyms=["Alpha", "Shared"], complexity=20)
+    beta = make_chem(502, "Beta", "CCCl", synonyms=["Beta", "Shared"], complexity=20)
+    ops_context.compounds.update_chems(list(ops_context.compounds.chems) + [alpha, beta])
 
     ops_context.store.write_jsonl(
         [
@@ -275,6 +317,7 @@ def test_sql_exporter_emits_relational_rows_from_compiled_pipeline_state(ops_con
 
     sql_to_rows = {sql: rows for sql, rows in executed}
     compounds_rows = next(rows for sql, rows in executed if "INSERT INTO compounds" in sql)
+    synonyms_rows = next(rows for sql, rows in executed if "INSERT INTO compound_synonyms" in sql)
     reactions_rows = next(rows for sql, rows in executed if "INSERT INTO reactions" in sql)
     details_rows = next(rows for sql, rows in executed if "INSERT INTO reaction_details" in sql)
     solvents_rows = next(rows for sql, rows in executed if "INSERT INTO reaction_solvents" in sql)
@@ -302,4 +345,8 @@ def test_sql_exporter_emits_relational_rows_from_compiled_pipeline_state(ops_con
     ]
     assert solvents_rows == [(ops_context.water["cid"], reaction["rid"])]
     assert catalysts_rows == [(ops_context.methanol["cid"], reaction["rid"])]
+    assert (501, "Shared") not in synonyms_rows
+    assert (502, "Shared") not in synonyms_rows
+    assert (501, "Alpha") in synonyms_rows
+    assert (502, "Beta") in synonyms_rows
     assert fake_conn.commits == 1

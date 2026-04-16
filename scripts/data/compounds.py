@@ -10,9 +10,12 @@ from types import MappingProxyType
 from itertools import chain
 
 import inspect
+from collections import Counter
 
 from rich.table import Table
 from rich.rule import Rule
+
+from . import chem_names
 
 
 # Disable all RDKit warnings and info messages
@@ -36,10 +39,13 @@ class CompoundStore:
         self.chems_edges_fn = os.path.join(self.data_dir, 'chems', 'chems_edges.jsonl')
         self.elements_fn = os.path.join(self.data_dir, 'chems', 'elements.jsonl')
         self.cids_blacklist_fn = os.path.join(self.data_dir, 'chems', 'cids_blacklist.jsonl')
+        self.chem_names_blacklisted_fn = os.path.join(self.data_dir, 'unmapped_names_blacklisted.txt')
+        self.chem_smiles_blacklisted_fn = os.path.join(self.data_dir, 'unmapped_smiles_blacklisted.txt')
 
         self.categories_fn = os.path.join(self.data_dir, 'misc', "categories.jsonl")
         self.background_cids_fn = os.path.join(self.data_dir, 'misc', 'background_cids.json')
-        self.cids_filtered_synonyms_fn = os.path.join(self.data_dir, 'misc', 'cids_filtered_synonyms.jsonl')
+        self._legacy_cids_filtered_synonyms_fn = os.path.join(self.data_dir, 'misc', 'cids_filtered_synonyms.jsonl')
+        self.synonym_filter_decisions_fn = os.path.join(self.data_dir, 'misc', 'synonym_filter_decisions.jsonl')
 
         self.chems_properties_dir = os.path.join(self.data_dir, 'chems_properties')
         self.chems_properties_assets_dir = os.path.join(self.data_dir, 'assets', 'chems_properties')
@@ -58,7 +64,7 @@ class CompoundStore:
         store.register_sorting(self.elements_fn, None)
         store.register_sorting(self.categories_fn, 'code')
         store.register_sorting(self.cids_blacklist_fn, 'cid')
-        store.register_sorting(self.cids_filtered_synonyms_fn, 'cid')
+        store.register_sorting(self.synonym_filter_decisions_fn, 'cid')
 
         store.register_vault(self.chems_mapped_fn, 'chems_')
         store.register_vault(self.chems_unmapped_fn, 'chems_')
@@ -72,7 +78,7 @@ class CompoundStore:
         self.unknown_name_ph = "<Unknown>"
         self.null_cid = 0
 
-        self.CAS_PATTERN = r'\d{2,7}-\d{2}-\d'
+        self.CAS_PATTERN = chem_names.CAS_PATTERN
 
     # --- Cached properties ---
 
@@ -151,20 +157,52 @@ class CompoundStore:
         return MappingProxyType({entry['cid']: entry['wiki'] for entry in wiki_entries})
 
     @cached_property
-    def cids_filtered_synonyms(self):
-        entries = self.store.load_jsonl(self.cids_filtered_synonyms_fn)
-        return MappingProxyType({x['cid']: set(x['synonyms']) for x in entries})
+    def synonym_filter_decisions(self):
+        entries = self.store.load_jsonl(self.synonym_filter_decisions_fn)
+        if not entries:
+            entries = self._load_legacy_synonym_filter_decisions()
+        return tuple(self._normalize_synonym_filter_decision(entry) for entry in entries)
 
     @cached_property
-    def name_cid_map(self):
-        _name_cid_map = dict()
+    def filtered_synonyms_by_cid(self):
+        filtered = dict()
+        for entry in self.synonym_filter_decisions:
+            if entry['decision'] != 'remove_synonym':
+                continue
+            filtered.setdefault(entry['cid'], set()).add(entry['norm_synonym'])
+        return MappingProxyType(filtered)
+
+    @cached_property
+    def name_cids_map(self):
+        _name_cids_map = dict()
         for chem in self.chems:
             cid = chem['cid']
-            _name_cid_map[self.normalize_chem_name(chem['cmpdname'], is_clean=True)] = cid
+            norm_name = self.normalize_chem_name(chem['cmpdname'], is_clean=True)
+            _name_cids_map.setdefault(norm_name, set()).add(cid)
             for syn in chem['cmpdsynonym']:
-                _name_cid_map[self.normalize_chem_name(syn, is_clean=True)] = cid
+                norm_name = self.normalize_chem_name(syn, is_clean=True)
+                _name_cids_map.setdefault(norm_name, set()).add(cid)
 
-        return MappingProxyType(_name_cid_map)
+        return MappingProxyType({
+            name: tuple(sorted(cids))
+            for name, cids in _name_cids_map.items()
+        })
+
+    @cached_property
+    def unique_name_cid_map(self):
+        return MappingProxyType({
+            name: positive_cids[0]
+            for name, cids in self.name_cids_map.items()
+            if len(positive_cids := tuple(cid for cid in cids if cid > 0)) == 1
+        })
+
+    @cached_property
+    def ambiguous_name_cids_map(self):
+        return MappingProxyType({
+            name: cids
+            for name, cids in self.name_cids_map.items()
+            if len([cid for cid in cids if cid > 0]) > 1
+        })
 
     @cached_property
     def cas_cid_map(self):
@@ -181,6 +219,141 @@ class CompoundStore:
     @cached_property
     def symb_to_el(self):
         return MappingProxyType({el['symbol']: el for el in self.store.load_jsonl(self.elements_fn)})
+
+    # --- Synonym filter decision persistence ---
+
+    def _load_legacy_synonym_filter_decisions(self):
+        legacy_entries = self.store.load_jsonl(self._legacy_cids_filtered_synonyms_fn)
+        decisions = []
+        for entry in legacy_entries:
+            cid = entry['cid']
+            for norm_synonym in entry.get('synonyms', []):
+                decisions.append({
+                    'cid': cid,
+                    'norm_synonym': norm_synonym,
+                    'raw_synonyms': [norm_synonym],
+                    'decision': 'remove_synonym',
+                    'reason': 'manual_conflict',
+                    'source': 'legacy_cids_filtered_synonyms',
+                    'other_cids': [],
+                })
+        return decisions
+
+    def _normalize_synonym_filter_decision(self, entry):
+        norm_synonym = entry.get('norm_synonym')
+        if norm_synonym is None and entry.get('synonym') is not None:
+            norm_synonym = self.normalize_chem_name(entry['synonym'], is_clean=True)
+
+        return {
+            'cid': int(entry['cid']),
+            'norm_synonym': norm_synonym,
+            'raw_synonyms': sorted(set(entry.get('raw_synonyms') or [])),
+            'decision': entry.get('decision', 'remove_synonym'),
+            'reason': entry.get('reason', 'manual_conflict'),
+            'source': entry.get('source', 'manual_conflict_resolver'),
+            'other_cids': sorted(set(entry.get('other_cids') or [])),
+        }
+
+    def write_synonym_filter_decisions(self, decisions):
+        merged = dict()
+        for entry in decisions:
+            entry = self._normalize_synonym_filter_decision(entry)
+            if entry['cid'] <= 0 or not entry['norm_synonym']:
+                continue
+            key = (
+                entry['cid'],
+                entry['norm_synonym'],
+                entry['decision'],
+                entry['reason'],
+                entry['source'],
+            )
+            if key not in merged:
+                merged[key] = entry
+                continue
+            merged[key]['raw_synonyms'] = sorted(
+                set(merged[key]['raw_synonyms']) | set(entry['raw_synonyms'])
+            )
+            merged[key]['other_cids'] = sorted(
+                set(merged[key]['other_cids']) | set(entry['other_cids'])
+            )
+
+        self.store.write_jsonl(list(merged.values()), self.synonym_filter_decisions_fn)
+        self.clear_cached_property('synonym_filter_decisions')
+        self.clear_cached_property('filtered_synonyms_by_cid')
+
+    def migrate_legacy_synonym_filter_decisions(self):
+        current = list(self.store.load_jsonl(self.synonym_filter_decisions_fn))
+        migrated = self._load_legacy_synonym_filter_decisions()
+        self.write_synonym_filter_decisions(current + migrated)
+        return len(migrated)
+
+    def audit_synonym_filtering(self, chems=None, rejected_by_reason=None):
+        chems = self.chems_mapped if chems is None else tuple(chems)
+        rejected_by_reason = Counter(rejected_by_reason or {})
+
+        accepted_synonyms = sum(len(chem.get('cmpdsynonym') or []) for chem in chems)
+        normalized_to_cids = dict()
+        exported_synonyms = 0
+        for chem in chems:
+            cid = chem['cid']
+            filtered_synonyms = self.filtered_synonyms_by_cid.get(cid, set())
+            for syn in chem.get('cmpdsynonym') or []:
+                result = chem_names.classify_name(
+                    syn,
+                    manual_filtered=filtered_synonyms,
+                    unknown_name=self.unknown_name_ph,
+                )
+                if not result.accepted and result.reason:
+                    rejected_by_reason[result.reason] += 1
+                norm_name = self.normalize_chem_name(syn, is_clean=True)
+                normalized_to_cids.setdefault(norm_name, set()).add(cid)
+
+        for chem in chems:
+            cid = chem['cid']
+            for syn in chem.get('cmpdsynonym') or []:
+                norm_name = self.normalize_chem_name(syn, is_clean=True)
+                if normalized_to_cids.get(norm_name) == {cid}:
+                    exported_synonyms += 1
+
+        return {
+            'compounds': len(chems),
+            'accepted_synonyms': accepted_synonyms,
+            'rejected_by_reason': dict(sorted(rejected_by_reason.items())),
+            'unique_names': sum(1 for cids in normalized_to_cids.values() if len(cids) == 1),
+            'ambiguous_names': sum(1 for cids in normalized_to_cids.values() if len(cids) > 1),
+            'exportable_unique_synonyms': exported_synonyms,
+            'filter_decisions': len(self.synonym_filter_decisions),
+            'filter_decisions_applied': sum(len(syns) for syns in self.filtered_synonyms_by_cid.values()),
+        }
+
+    def regenerate_mapped_synonyms(self):
+        migrated_decisions = self.migrate_legacy_synonym_filter_decisions()
+        rejected_by_reason = Counter()
+        processed_chems = []
+        initial_chems_num = len(self.chems_mapped)
+
+        for chem in self.logger.track(self.chems_mapped, "Regenerating mapped synonyms"):
+            filtered_synonyms = self.filtered_synonyms_by_cid.get(chem['cid'], set())
+            names_to_check = list(chem.get('cmpdsynonym') or [])
+            names_to_check.extend([chem.get('cmpdname'), chem.get('iupacname')])
+            for name in names_to_check:
+                result = chem_names.classify_name(
+                    name,
+                    manual_filtered=filtered_synonyms,
+                    unknown_name=self.unknown_name_ph,
+                )
+                if not result.accepted and result.reason:
+                    rejected_by_reason[result.reason] += 1
+
+            processed_chem = self.process_chem_single(dict(chem), force=set())
+            if processed_chem:
+                processed_chems.append(processed_chem)
+
+        self.update_mapped_chems(processed_chems)
+        audit = self.audit_synonym_filtering(rejected_by_reason=rejected_by_reason)
+        audit['legacy_decisions_migrated'] = migrated_decisions
+        audit['discarded_compounds'] = initial_chems_num - len(processed_chems)
+        return audit
 
     # --- Cache invalidation ---
 
@@ -336,161 +509,31 @@ class CompoundStore:
         return cas_numbers
 
     def __chem_name_to_ascii(self, chem_name_raw):
-        unicode_map = {
-            '\u2011': '-',
-            '\u03b1': 'alpha',
-            '\u03b3': 'gamma,',
-            '\u2013': '-',
-            '\u2019': "'"
-        }
-        chem_name_ascii = ""
-        for char in chem_name_raw:
-            if not char.isascii():
-                if char in unicode_map:
-                    char = unicode_map[char]
-                else:
-                    char = ""
-            chem_name_ascii += char
-
-        return chem_name_ascii
+        return chem_names.chem_name_to_ascii(chem_name_raw)
 
     def clean_chem_name(self, chem_name_raw, is_clean=False):
-        chem_name = self.__chem_name_to_ascii(chem_name_raw)
-        chem_name = chem_name.strip()
-        chem_name = re.sub(r'\s+', ' ', chem_name)
-
-        if not is_clean:
-            chem_name = chem_name.strip('`\'".,;:')
-            chem_name = re.sub(r'^\d+ ', '', chem_name)
-
-        return chem_name
+        return chem_names.clean_chem_name(
+            chem_name_raw,
+            is_clean=is_clean,
+            unknown_name=self.unknown_name_ph,
+        )
 
     def normalize_chem_name(self, chem_name_raw, is_clean=False):
-        if chem_name_raw == self.unknown_name_ph:
-            return chem_name_raw
-
-        chem_name = self.clean_chem_name(chem_name_raw, is_clean=is_clean)
-        chem_name = chem_name.lower()
-        chem_name = chem_name.strip()
-        chem_name = chem_name.replace("aluminum", "aluminium")
-
-        if not is_clean:
-            chem_name = re.sub(r' \([^\d]+\)$', '', chem_name)
-            chem_name = chem_name.replace(' vapor', '')
-            chem_name = chem_name.replace(' dust', '')
-            chem_name = chem_name.replace('solution', '')
-            chem_name = chem_name.replace('concentrated', '')
-            chem_name = chem_name.replace('dilute ', '')
-            chem_name = chem_name.replace('fuming ', '')
-            chem_name = chem_name.replace('solid', '')
-            chem_name = chem_name.replace('glacial ', '')
-            chem_name = chem_name.replace('elemental', '')
-            chem_name = chem_name.replace(' metal', '')
-            chem_name = chem_name.replace('aqueous', '')
-            chem_name = chem_name.replace(' gas', '')
-            chem_name = chem_name.replace('hot ', '')
-            chem_name = chem_name.replace('uv light', 'light')
-            chem_name = chem_name.replace('blue light', 'light')
-            chem_name = chem_name.replace('ultraviolet light', 'light')
-
-            if "catalyst" in chem_name or 'raney nickel' in chem_name:
-                chem_name = "catalyst"
-
-        chem_name = re.sub(r'\s+', '', chem_name)
-
-        return chem_name
+        return chem_names.normalize_chem_name(
+            chem_name_raw,
+            is_clean=is_clean,
+            unknown_name=self.unknown_name_ph,
+        )
 
     def good_name_criteria(self, name):
-        if name == self.unknown_name_ph:
-            return True
-
-        if not name or len(name) <= 1 or not name.isascii():
-            return False
-
-        name = name.strip()
-
-        DISCARD_WORDS_PART = [
-            'oil', 'solid', 'solids', 'liquid', 'dry', 'powder', 'nanopowder',
-            'beads', 'impurity', 'grade', 'intermediate', 'title', 'desired',
-            'material', 'solution', 'syrup', 'crystals', 'residue', 'compound',
-            'product', 'titled', 'mixture', 'foam', 'needles', 'crude', 'resin',
-            'gum'
-        ]
-
-        discard_word_part_pattern = '(' + '|'.join([r"\b"+re.escape(word)+r"\b" for word in DISCARD_WORDS_PART]) + ')'
-
-        DISCARD_WORDS_WHOLE = [
-            'acetate', 'acid', 'salt', 'phosphonate', 'ester', 'amide', 'nitrile',
-            'aldehyde', 'amine', 'alcohol', 'ketone', 'diacid', 'gas', 'cyano', 'azide',
-            'metal', 'ether', 'oxime', 'imine', 'alkyne', 'alkene', 'hydrochloride',
-            "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"
-        ]
-
-        discard_word_whole_pattern = '(' + '|'.join([r"^"+re.escape(word)+r"$" for word in DISCARD_WORDS_WHOLE]) + ')'
-
-        DISCARD_PATTERNS = [
-            r'[:=%<>@/\\_.#&*";?!]',
-            r'[-,.]$',
-            r'^[-,.]',
-            self.CAS_PATTERN,
-            r'unii-',
-            r'\(\d:\d\)',
-            r'\d{3,}',
-            r'[a-z]{14}-[a-z]{10}-[a-z]',
-            r'\s{2,}',
-            r'\b[nm]m\b',
-            r'-,',
-            r'^\d+$',
-            r'^[a-z]?[0-9-()\s]+[a-z]?$',
-            r'\(\s+.+\s+\)',
-            discard_word_part_pattern,
-            discard_word_whole_pattern
-        ]
-
-        name = name.lower()
-        if any(re.search(p, name) for p in DISCARD_PATTERNS):
-            return False
-        # UNII identifiers
-        if re.fullmatch(r'[a-z0-9]{10}', name) and re.search(r'[abdefgijklmqrtuvwxyz]', name) and re.search(r'\d', name):
-            return False
-
-        return True
+        return chem_names.classify_name(
+            name,
+            unknown_name=self.unknown_name_ph,
+        ).accepted
 
     # --- Compound processing ---
 
     def __process_chem_synonyms(self, chem):
-        def good_name_criteria(name):
-            if not name:
-                return False
-
-            filtered_synonyms = self.cids_filtered_synonyms.get(chem['cid'], set())
-            norm_name = self.normalize_chem_name(name, is_clean=True)
-            if norm_name in filtered_synonyms:
-                return False
-
-            return self.good_name_criteria(name)
-
-        def clean_synonym(name):
-            if name == self.unknown_name_ph:
-                return name
-
-            name = name.strip()
-
-            tags = [
-                'USP', 'EP', 'HSDB', 'EP MONOGRAPH', 'WHO-DD', 'USAN', 'MI',
-                'USP MONOGRAPH', 'VANDF', 'CZECH', 'ACGIH', 'NDIPA', 'German',
-                'VAN', 'INN', '9CI', '8CI', 'JAN', 'French', 'Latin', 'ISO', 'Standard',
-                'natural', 'HPUS', 'IARC', 'NF', 'INCI', 'TN', 'Dutch', 'Italian',
-                'FCC', 'DCIT', 'BAN', 'ORANGE BOOK', 'Spanish', 'IUPAC', 'FHFI', 'Polish'
-            ]
-
-            pattern = r'[\(\[]\s*(?:' + '|'.join(re.escape(tag) for tag in tags) + r')\s*[\)\]]$'
-            name = re.sub(pattern, '', name, flags=re.IGNORECASE).strip()
-
-            name = re.sub(r'\bfume\b', '', name, flags=re.IGNORECASE).strip()
-
-            return name
-
         synonyms = chem['cmpdsynonym']
         if not synonyms:
             return False
@@ -498,21 +541,46 @@ class CompoundStore:
         if not isinstance(synonyms, list):
             synonyms = [synonyms]
 
-        synonyms = map(lambda x: clean_synonym(x), synonyms)
-        synonyms = list(filter(lambda x: good_name_criteria(x), synonyms))
+        filtered_synonyms = self.filtered_synonyms_by_cid.get(chem['cid'], set())
+        synonyms = [
+            result.clean_name
+            for result in (
+                chem_names.classify_name(
+                    syn,
+                    manual_filtered=filtered_synonyms,
+                    unknown_name=self.unknown_name_ph,
+                )
+                for syn in synonyms
+            )
+            if result.accepted
+        ]
         if not synonyms:
             return False
 
-        if good_name_criteria(chem['iupacname']):
-            synonyms = [chem['iupacname']] + synonyms
+        iupac_result = chem_names.classify_name(
+            chem['iupacname'],
+            manual_filtered=filtered_synonyms,
+            unknown_name=self.unknown_name_ph,
+        )
+        if iupac_result.accepted:
+            synonyms = [iupac_result.clean_name] + synonyms
 
         if chem['cmpdname']:
-            chem['cmpdname'] = clean_synonym(chem['cmpdname'])
+            chem['cmpdname'] = chem_names.clean_synonym(
+                chem['cmpdname'],
+                unknown_name=self.unknown_name_ph,
+            )
 
-        if chem['cmpdname'] is None or not good_name_criteria(chem['cmpdname']):
+        cmpdname_result = chem_names.classify_name(
+            chem['cmpdname'],
+            manual_filtered=filtered_synonyms,
+            unknown_name=self.unknown_name_ph,
+        )
+        if chem['cmpdname'] is None or not cmpdname_result.accepted:
             chem['cmpdname'] = synonyms[0]
         else:
-            synonyms = [chem['cmpdname']] + synonyms
+            chem['cmpdname'] = cmpdname_result.clean_name
+            synonyms = [cmpdname_result.clean_name] + synonyms
 
         synonyms = list(dict.fromkeys(synonyms))
         chem['cmpdsynonym'] = synonyms[:self.max_synonyms_thr]

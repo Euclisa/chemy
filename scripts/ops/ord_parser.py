@@ -496,12 +496,12 @@ class OrdParser:
                     return True
 
                 norm_name = self.compounds.normalize_chem_name(name, is_clean=True)
-                if norm_name in self.compounds.name_cid_map:
+                if norm_name in self.compounds.unique_name_cid_map:
                     unmapped_chem = self.compounds.build_chem(-1, name, smiles)
                     if not unmapped_chem:
                         return True
 
-                    cid = self.compounds.name_cid_map[norm_name]
+                    cid = self.compounds.unique_name_cid_map[norm_name]
                     mapped_chem = self.compounds.cid_chem_map[cid]
 
                     mapped_chem_inchi = self.compounds.get_chem_norm_inchi(mapped_chem)
