@@ -105,3 +105,73 @@ class ReactionLLMParser:
 
         reaction = self.reactions.assemble_reaction({'reagents': reagents, 'products': products})
         return reaction, unmapped_names
+
+    def parse_structured_reaction(self, reaction_dict):
+        if not isinstance(reaction_dict, dict):
+            return None, set()
+
+        parse_success = True
+        unmapped_names = set()
+
+        def parse_compounds(compounds, skip_names, existing_cids=None):
+            nonlocal parse_success
+            existing_cids = set() if existing_cids is None else existing_cids
+            result = []
+            cids = set()
+
+            for compound in compounds:
+                name = compound.get('name', '')
+                phase = compound.get('phase')
+                note = compound.get('note')
+                norm = self.compounds.normalize_chem_name(name)
+                if norm in skip_names:
+                    continue
+
+                clean = self.compounds.clean_chem_name(name)
+                cid = self.compounds.unique_name_cid_map.get(norm)
+                if cid is None:
+                    parse_success = False
+                    unmapped_names.add((norm, clean))
+
+                if cid is None or cid not in existing_cids | cids:
+                    entry = {'norm_name': norm, 'original_name': clean, 'cid': cid}
+                    if phase:
+                        entry['phase'] = phase
+                    if note:
+                        entry['note'] = note
+                    result.append(entry)
+                    cids.add(cid)
+
+            result = list({c['cid']: c for c in result}.values())
+            if parse_success:
+                result.sort(key=lambda c: c['cid'])
+
+            return result, cids
+
+        reagents, reagents_cids = parse_compounds(
+            reaction_dict.get('reagents', []),
+            {"light", "heat", "catalyst"},
+        )
+        products, products_cids = parse_compounds(
+            reaction_dict.get('products', []),
+            {"otherproducts"},
+            reagents_cids,
+        )
+
+        if products_cids & reagents_cids or not products or not reagents:
+            parse_success = False
+
+        if not parse_success:
+            return None, unmapped_names
+
+        reaction = self.reactions.assemble_reaction({
+            'reagents': reagents,
+            'products': products,
+        })
+
+        if reaction_dict.get('solvent'):
+            reaction['solvent'] = reaction_dict['solvent']
+        if reaction_dict.get('catalyst'):
+            reaction['catalyst'] = reaction_dict['catalyst']
+
+        return reaction, unmapped_names

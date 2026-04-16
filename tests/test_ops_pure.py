@@ -2,7 +2,9 @@ import csv
 import json
 from pathlib import Path
 
+from scripts.ops.raw_reactions.fetcher import parse_reactions_jsonl
 from scripts.ops.raw_reactions.presets import get_preset
+from scripts.ops.raw_reactions.prompts import format_structured_reaction
 
 
 def test_bigsol_parser_groups_valid_rows_and_converts_units(ops_context):
@@ -165,16 +167,120 @@ def test_reaction_llm_parser_parses_control_words_and_unmapped_names(ops_context
     assert ("mysteryreagent", "Mystery Reagent") in unmapped
 
 
-def test_reaction_llm_parser_raw_parsing_applies_threshold_and_deduplicates(ops_context):
-    valid_reaction = "Water -> Ethanol"
-    duplicate_reaction = "Water -> Ethanol"
-    low_confidence = "Water -> Methanol"
+def test_raw_reactions_jsonl_parser_requires_phase_and_allows_optional_note():
+    valid_without_note = {
+        "reagents": [{"name": "Water", "phase": "l"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+        "solvent": None,
+        "catalyst": None,
+    }
+    valid_with_note = {
+        "reagents": [{"name": "Hydrogen sulfide", "phase": "g", "note": "bubbled"}],
+        "products": [{"name": "Copper(II) sulfide", "phase": "s"}],
+    }
+    missing_phase = {
+        "reagents": [{"name": "Water"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    }
+    invalid_phase = {
+        "reagents": [{"name": "Water", "phase": "liquid"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    }
+    invalid_note = {
+        "reagents": [{"name": "Water", "phase": "l", "note": 12}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    }
+
+    stats = {}
+    parsed = parse_reactions_jsonl(
+        "\n".join(
+            json.dumps(obj)
+            for obj in [
+                valid_without_note,
+                valid_with_note,
+                missing_phase,
+                invalid_phase,
+                invalid_note,
+            ]
+        ),
+        stats,
+    )
+
+    assert parsed == [valid_without_note, {**valid_with_note, "solvent": None, "catalyst": None}]
+    assert stats == {"accepted": 2, "invalid_schema": 3}
+
+
+def test_format_structured_reaction_includes_phase_note_and_top_level_metadata():
+    reaction = {
+        "reagents": [
+            {"name": "hydrogen sulfide", "phase": "g", "note": "bubbled"},
+            {"name": "copper(II) sulfate", "phase": "aq"},
+        ],
+        "products": [{"name": "copper(II) sulfide", "phase": "s"}],
+        "solvent": "water",
+        "catalyst": None,
+    }
+
+    formatted = format_structured_reaction(reaction)
+
+    assert formatted == (
+        "hydrogen sulfide(g) {bubbled} + copper(II) sulfate(aq) -> "
+        "copper(II) sulfide(s) [solvent: water]"
+    )
+
+
+def test_reaction_llm_parser_structured_parsing_preserves_phase_and_note(ops_context):
+    reaction_obj = {
+        "reagents": [{"name": "Water", "phase": "l", "note": "neat"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    }
+
+    reaction, unmapped = ops_context.reaction_llm.parse_structured_reaction(reaction_obj)
+
+    assert reaction is not None
+    assert unmapped == set()
+    assert reaction["reagents"][0]["cid"] == ops_context.water["cid"]
+    assert reaction["reagents"][0]["phase"] == "l"
+    assert reaction["reagents"][0]["note"] == "neat"
+    assert reaction["products"][0]["cid"] == ops_context.ethanol["cid"]
+    assert reaction["products"][0]["phase"] == "l"
+    assert "note" not in reaction["products"][0]
+
+
+def test_reaction_llm_parser_raw_parsing_filters_invalid_and_deduplicates(ops_context):
+    valid_reaction = {
+        "reagents": [{"name": "Water", "phase": "l", "note": "neat"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    }
+    duplicate_reaction = {
+        "reagents": [{"name": "Water", "phase": "aq"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    }
+    rejected_reaction = {
+        "reagents": [{"name": "Water", "phase": "l"}],
+        "products": [{"name": "Methanol", "phase": "l"}],
+    }
 
     with open(ops_context.raw_reactions.layout.verdict("default"), "w") as f:
         for entry in [
-            {"reaction": valid_reaction, "confidence": 0.9, "source": "openai/gpt-oss-120b"},
-            {"reaction": duplicate_reaction, "confidence": 0.8, "source": "qwen/qwen3-235b-a22b"},
-            {"reaction": low_confidence, "confidence": 0.1, "source": "openai/gpt-oss-120b"},
+            {
+                "reaction": valid_reaction,
+                "valid": True,
+                "confidence": 0.9,
+                "source": "openai/gpt-oss-120b",
+            },
+            {
+                "reaction": duplicate_reaction,
+                "valid": True,
+                "confidence": 0.8,
+                "source": "qwen/qwen3-235b-a22b",
+            },
+            {
+                "reaction": rejected_reaction,
+                "valid": False,
+                "confidence": 0.1,
+                "source": "openai/gpt-oss-120b",
+            },
         ]:
             f.write(json.dumps(entry) + "\n")
 
@@ -184,6 +290,8 @@ def test_reaction_llm_parser_raw_parsing_applies_threshold_and_deduplicates(ops_
     assert len(parsed) == 1
     assert parsed[0]["source"] == "openai/gpt-oss-120b"
     assert parsed[0]["confidence"] == 0.9
+    assert parsed[0]["reagents"][0]["phase"] == "l"
+    assert parsed[0]["reagents"][0]["note"] == "neat"
 
 
 def test_llm_fetch_helpers_and_fallback_schedule(ops_context, monkeypatch, tmp_path):
@@ -208,27 +316,28 @@ def test_llm_fetch_helpers_and_fallback_schedule(ops_context, monkeypatch, tmp_p
     assert not ops_context.llm_ops._str_verdict_to_bool("Invalid")
 
     calls = []
+    structured_reaction = {
+        "reagents": [{"name": "Water", "phase": "l"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+        "solvent": None,
+        "catalyst": None,
+    }
 
     def fake_fetch(message, model, **kwargs):
         calls.append(model)
         if model == ops_context.llm_ops.gpt_oss:
             return "No reactions available"
-        return "Water -> Ethanol"
-
-    def fake_refine(messages, model, **kwargs):
-        calls.append(f"revalidate:{model}")
-        return "Water -> Ethanol"
+        return json.dumps(structured_reaction)
 
     monkeypatch.setattr(ops_context.llm_client, "fetch_answer_str", fake_fetch)
-    monkeypatch.setattr(ops_context.llm_client, "_fetch_answer", fake_refine)
 
     result = ops_context.raw_reactions._fetcher.fetch_one(ops_context.water, get_preset("default"))
 
-    assert result == {"cid": ops_context.water["cid"], "reactions": ["Water -> Ethanol"]}
+    assert result == {"cid": ops_context.water["cid"], "reactions": [structured_reaction]}
     assert calls == [
         ops_context.reaction_llm.gpt_oss,
         ops_context.reaction_llm.qwen,
-        f"revalidate:{ops_context.reaction_llm.qwen}",
+        ops_context.reaction_llm.qwen,
     ]
 
 
