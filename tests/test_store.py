@@ -51,3 +51,31 @@ def test_vault_shards_entries_and_loads_them_back(tmp_path):
         {"cid": 4},
         {"cid": 5},
     ]
+
+
+def test_stream_append_to_regular_file(tmp_path):
+    store = JsonlStore()
+    path = str(tmp_path / "out.jsonl")
+
+    store.stream_append({"a": 1}, path)
+    store.stream_append({"a": 2}, path)
+
+    assert store.load_jsonl(path) == [{"a": 1}, {"a": 2}]
+
+
+def test_stream_append_to_vault_respects_shard_limit(tmp_path):
+    store = JsonlStore()
+    store._dir_vault_entries_per_file = 2
+
+    vault_dir = str(tmp_path / "vault")
+    store.register_vault(vault_dir, "v_")
+
+    for i in range(5):
+        store.stream_append({"i": i}, vault_dir)
+
+    shard_names = sorted(
+        p.name for p in Path(vault_dir).glob("*.jsonl")
+    )
+    assert shard_names == ["v_1.jsonl", "v_2.jsonl", "v_3.jsonl"]
+    loaded = store.load_jsonl(vault_dir)
+    assert loaded == [{"i": i} for i in range(5)]

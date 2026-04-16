@@ -2,6 +2,7 @@ import os
 import json
 import shutil
 import glob
+import threading
 
 
 class JsonlStore:
@@ -10,12 +11,14 @@ class JsonlStore:
         self._file_sorting_prefs = dict()
         self._dir_vault_prefs = dict()
         self._dir_vault_entries_per_file = 5000
+        self._vault_locks = dict()
 
     def register_sorting(self, path, prefs):
         self._file_sorting_prefs[path] = prefs
 
     def register_vault(self, path, prefix):
         self._dir_vault_prefs[path] = prefix
+        self._vault_locks[path] = threading.Lock()
 
     def load_jsonl(self, filename):
         if not os.path.exists(filename):
@@ -123,6 +126,38 @@ class JsonlStore:
             with open(filename, 'w') as f:
                 for entry in entries:
                     f.write(json.dumps(entry) + '\n')
+
+    def _vault_append_one(self, entry, vault_path):
+        os.makedirs(vault_path, exist_ok=True)
+        prefix = self._dir_vault_prefs[vault_path]
+        shards = sorted(
+            (f for f in os.listdir(vault_path)
+             if f.endswith('.jsonl') and f.startswith(prefix)),
+            key=lambda x: int(x[len(prefix):-len('.jsonl')])
+        )
+        if not shards:
+            shard_path = os.path.join(vault_path, f"{prefix}1.jsonl")
+        else:
+            last_shard_name = shards[-1]
+            last_shard_path = os.path.join(vault_path, last_shard_name)
+            with open(last_shard_path) as f:
+                count = sum(1 for _ in f)
+            if count >= self._dir_vault_entries_per_file:
+                next_num = int(last_shard_name[len(prefix):-len('.jsonl')]) + 1
+                shard_path = os.path.join(vault_path, f"{prefix}{next_num}.jsonl")
+            else:
+                shard_path = last_shard_path
+        with open(shard_path, 'a') as f:
+            f.write(json.dumps(entry) + '\n')
+
+    def stream_append(self, entry, path):
+        """Thread-safe append of a single entry to a file or vault directory."""
+        if path in self._vault_locks:
+            with self._vault_locks[path]:
+                self._vault_append_one(entry, path)
+        else:
+            with open(path, 'a') as f:
+                f.write(json.dumps(entry) + '\n')
 
     def map_to_entries(self, in_map, key, value):
         return [{key: k, value: v} for k, v in in_map.items()]

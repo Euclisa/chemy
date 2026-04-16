@@ -1,13 +1,15 @@
 """
-One-time migration from the legacy flat raw_reactions/ layout to per-preset subdirs.
+Migration to the run-based / global-verdict layout.
 
-Legacy layout:
-    data/raw_reactions/raw_reactions.jsonl              -> default/raw.jsonl
-    data/raw_reactions/wiki_raw_reactions.jsonl         -> wiki_uncommon_rp/raw.jsonl
-    data/raw_reactions/top_rare_raw_reactions.jsonl     -> top_rare_rp/raw.jsonl
-    data/raw_reactions/wiki_products_raw_reactions.jsonl    -> wiki_uncommon_p/raw.jsonl
-    data/raw_reactions/annotated_products_raw_reactions.jsonl -> annotated_uncommon_p/raw.jsonl
-    data/raw_reactions/raw_reactions_verdict.jsonl      -> partitioned per preset
+Previous layout:
+    data/raw_reactions/<preset>/raw.jsonl
+    data/raw_reactions/<preset>/verdict.jsonl   (one per preset)
+    data/raw_reactions/repairs.jsonl
+
+New layout:
+    data/raw_reactions/<preset>/raw_1.jsonl     (run-based; old raw.jsonl becomes run 1)
+    data/raw_reactions/verdict/verdict_1.jsonl  (global vault; all preset verdicts merged)
+    data/raw_reactions/repairs.jsonl            (unchanged)
 
 Run once:
     python -m scripts.ops.raw_reactions._migrate --data-dir data
@@ -18,15 +20,12 @@ import os
 import shutil
 
 
-_LEGACY_RAW_FILES = {
-    "raw_reactions.jsonl": "default",
-    "wiki_raw_reactions.jsonl": "wiki_uncommon_rp",
-    "top_rare_raw_reactions.jsonl": "top_rare_rp",
-    "wiki_products_raw_reactions.jsonl": "wiki_uncommon_p",
-    "annotated_products_raw_reactions.jsonl": "annotated_uncommon_p",
-}
-
-_LEGACY_VERDICT_FILE = "raw_reactions_verdict.jsonl"
+def _iter_preset_dirs(raw_dir):
+    """Yield names of preset subdirectories (those that are plain directories)."""
+    for name in sorted(os.listdir(raw_dir)):
+        path = os.path.join(raw_dir, name)
+        if os.path.isdir(path) and name != 'verdict':
+            yield name, path
 
 
 def migrate(data_dir: str, dry_run: bool = False):
@@ -35,72 +34,58 @@ def migrate(data_dir: str, dry_run: bool = False):
         print(f"Nothing to migrate: {raw_dir} does not exist.")
         return
 
-    # --- migrate raw files ---
-    for legacy_name, preset_name in _LEGACY_RAW_FILES.items():
-        src = os.path.join(raw_dir, legacy_name)
+    # --- migrate raw files: raw.jsonl -> raw_1.jsonl ---
+    for preset_name, preset_dir in _iter_preset_dirs(raw_dir):
+        src = os.path.join(preset_dir, "raw.jsonl")
+        dst = os.path.join(preset_dir, "raw_1.jsonl")
         if not os.path.exists(src):
-            print(f"  skip (not found): {legacy_name}")
             continue
-        dest_dir = os.path.join(raw_dir, preset_name)
-        dest = os.path.join(dest_dir, "raw.jsonl")
-        print(f"  {legacy_name} -> {preset_name}/raw.jsonl")
+        if os.path.exists(dst):
+            print(f"  skip (raw_1.jsonl already exists): {preset_name}/raw_1.jsonl")
+            continue
+        print(f"  {preset_name}/raw.jsonl -> {preset_name}/raw_1.jsonl")
         if not dry_run:
-            os.makedirs(dest_dir, exist_ok=True)
-            shutil.move(src, dest)
+            shutil.move(src, dst)
 
-    # --- partition verdict file ---
-    legacy_verdict = os.path.join(raw_dir, _LEGACY_VERDICT_FILE)
-    if not os.path.exists(legacy_verdict):
-        print(f"  skip (not found): {_LEGACY_VERDICT_FILE}")
+    # --- merge all preset-local verdict.jsonl into global vault ---
+    verdict_dir = os.path.join(raw_dir, "verdict")
+    verdict_shard = os.path.join(verdict_dir, "verdict_1.jsonl")
+
+    all_entries = []
+    migrated_presets = []
+
+    for preset_name, preset_dir in _iter_preset_dirs(raw_dir):
+        src = os.path.join(preset_dir, "verdict.jsonl")
+        if not os.path.exists(src):
+            continue
+        with open(src) as f:
+            entries = [json.loads(line) for line in f if line.strip()]
+        print(f"  collecting {len(entries)} entries from {preset_name}/verdict.jsonl")
+        all_entries.extend(entries)
+        migrated_presets.append((preset_name, src))
+
+    if not all_entries:
+        print("  no preset-local verdict files found; nothing to merge.")
         return
 
-    # Build a map: cid -> which preset's raw file contains that cid.
-    # Read from legacy locations (before files are moved).
-    cid_to_presets = {}
-    for legacy_name, preset_name in _LEGACY_RAW_FILES.items():
-        raw_fn = os.path.join(raw_dir, legacy_name)
-        if not os.path.exists(raw_fn):
-            # Already moved (real run, second pass) — fall back to new location.
-            raw_fn = os.path.join(raw_dir, preset_name, "raw.jsonl")
-        if not os.path.exists(raw_fn):
-            continue
-        with open(raw_fn) as f:
-            for line in f:
-                entry = json.loads(line)
-                cid = entry.get('cid')
-                if cid is not None:
-                    cid_to_presets.setdefault(cid, set()).add(preset_name)
-
-    verdict_entries = {}  # preset_name -> list of entries
-    unrouted = []
-
-    with open(legacy_verdict) as f:
-        for line in f:
-            entry = json.loads(line.strip())
-            cid = entry.get('cid')
-            destinations = cid_to_presets.get(cid, set())
-            if not destinations:
-                unrouted.append(entry)
-            for preset_name in destinations:
-                verdict_entries.setdefault(preset_name, []).append(entry)
-
-    for preset_name, entries in verdict_entries.items():
-        dest_dir = os.path.join(raw_dir, preset_name)
-        dest = os.path.join(dest_dir, "verdict.jsonl")
-        print(f"  verdict -> {preset_name}/verdict.jsonl ({len(entries)} entries)")
+    if os.path.exists(verdict_shard):
+        print(f"  skip (global verdict shard already exists): verdict/verdict_1.jsonl")
+    else:
+        print(f"  writing {len(all_entries)} entries -> verdict/verdict_1.jsonl")
         if not dry_run:
-            os.makedirs(dest_dir, exist_ok=True)
-            with open(dest, 'w') as f:
-                for entry in entries:
+            os.makedirs(verdict_dir, exist_ok=True)
+            with open(verdict_shard, 'w') as f:
+                for entry in all_entries:
                     f.write(json.dumps(entry) + '\n')
 
-    if unrouted:
-        print(f"  WARNING: {len(unrouted)} verdict entries could not be routed to any preset (no matching raw cid).")
+    # --- remove preset-local verdict files after successful migration ---
+    for preset_name, src in migrated_presets:
+        backup = src + ".migrated_backup"
+        print(f"  archiving {preset_name}/verdict.jsonl -> {preset_name}/verdict.jsonl.migrated_backup")
+        if not dry_run:
+            shutil.move(src, backup)
 
-    if not dry_run:
-        backup = legacy_verdict + ".migrated_backup"
-        shutil.move(legacy_verdict, backup)
-        print(f"  Legacy verdict file backed up to: {backup}")
+    print(f"Migration complete. {len(all_entries)} verdict entries in global vault.")
 
 
 if __name__ == "__main__":
@@ -108,7 +93,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", default="data", help="Path to the data directory")
-    parser.add_argument("--dry-run", action="store_true", help="Print what would happen without moving files")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Print what would happen without moving files")
     args = parser.parse_args()
 
     print(f"{'[DRY RUN] ' if args.dry_run else ''}Migrating {args.data_dir}/raw_reactions/ ...")

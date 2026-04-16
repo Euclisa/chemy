@@ -1,5 +1,7 @@
 import re
 
+from scripts.infra.batch_runner import run_batch
+
 
 class LLMFetchOps:
     def __init__(self, compounds, reactions, store, logger, properties, llm_client, reaction_parser):
@@ -50,12 +52,13 @@ class LLMFetchOps:
     ):
         if routine_args is None:
             routine_args = []
-        self.llm_client.submit_entries_to_llm(
-            out_fn,
+        run_batch(
+            self.llm_client,
             entries,
-            max_workers,
             routine,
+            out_fn,
             self.logger,
+            max_workers=max_workers,
             routine_args=routine_args,
             batch_size=batch_size,
             description=description,

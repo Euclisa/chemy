@@ -1,4 +1,13 @@
+import json
+
+
 VALID_PHASES = frozenset({'g', 'l', 's', 'aq'})
+
+_POSITION_LABELS = {
+    "any": "a reagent or product",
+    "reagent": "a reagent",
+    "product": "a product",
+}
 
 _SCOPE_REQUIREMENTS = {
     "documented": "",
@@ -22,22 +31,27 @@ _JSONL_SCHEMA = (
 )
 
 
-def build_fetch_prompt(chem_name, compound_role, scope, existing_reactions=None):
+def build_fetch_prompt(chem_name, position, scope, existing_reactions=None):
     if scope not in _SCOPE_REQUIREMENTS:
         raise ValueError(f"Unknown scope: {scope!r}")
+    if position not in _POSITION_LABELS:
+        raise ValueError(f"Unknown position: {position!r}")
 
+    position_label = _POSITION_LABELS[position]
     context = ""
     if existing_reactions:
         lines = "\n".join(f"  {i + 1}. {r}" for i, r in enumerate(existing_reactions))
         context = (
-            f"We already know these reactions for {chem_name}:\n{lines}\n\n"
-            "Generate ADDITIONAL reactions not in this list.\n"
+            f"We already know these reactions where {chem_name} appears as "
+            f"{position_label}:\n{lines}\n\n"
+            f"Generate ADDITIONAL reactions where {chem_name} appears as "
+            f"{position_label} and that are not in this list.\n"
         )
 
     return (
         f"{context}"
         f"Provide a list of documented chemical reactions involving {chem_name}, "
-        f"where it appears as {compound_role}. "
+        f"where it appears as {position_label}. "
         f"{_SCOPE_REQUIREMENTS[scope]}"
         f"Return one JSON object per line (JSONL). {_JSONL_SCHEMA}\n\n"
         "Rules:\n"
@@ -81,6 +95,19 @@ VALIDATE_BATCH_INSTRUCT = (
     "Do not include any additional text."
 )
 
+REPAIR_BATCH_INSTRUCT = (
+    "You will be given chemical reactions that received low but nonzero validation "
+    "confidence. For each input, either correct the reaction or return null if it "
+    "cannot be confidently repaired.\n"
+    "Only fix chemically meaningful issues such as incorrect phase, misplaced "
+    "qualifiers, incorrect solvent/catalyst placement, or obvious participant naming "
+    "errors. Do not invent a different reaction just to make the row valid.\n"
+    "Return exactly one line per input reaction, in the same order. Each output line "
+    "must be either null or a corrected reaction JSON object.\n"
+    f"Corrected reaction objects must follow this schema. {_JSONL_SCHEMA}\n"
+    "Return ONLY valid JSONL lines, no extra text."
+)
+
 
 def format_structured_reaction(reaction):
     def fmt_compounds(compounds):
@@ -107,4 +134,11 @@ def format_reactions_for_validation(staged):
     return '\n'.join(
         f"{i + 1}. {format_structured_reaction(r['reaction'])}"
         for i, r in enumerate(staged)
+    )
+
+
+def format_repair_candidates(candidates):
+    return '\n'.join(
+        json.dumps(candidate['reaction'])
+        for candidate in candidates
     )

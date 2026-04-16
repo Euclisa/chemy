@@ -1,5 +1,7 @@
 import os
 
+from .raw_reactions.models import DEEPSEEK, GEMINI, GPT_OSS, GROK, QWEN
+
 
 class ReactionLLMParser:
     def __init__(self, data_dir, compounds, reactions, store, logger):
@@ -9,11 +11,11 @@ class ReactionLLMParser:
         self.store = store
         self.logger = logger
 
-        self.gpt_oss = "openai/gpt-oss-120b"
-        self.qwen = "qwen/qwen3-235b-a22b"
-        self.grok = "x-ai/grok-4-fast"
-        self.gemini = "google/gemini-2.5-flash-lite"
-        self.deepseek = "deepseek/deepseek-v3.2-exp"
+        self.gpt_oss = GPT_OSS
+        self.qwen = QWEN
+        self.grok = GROK
+        self.gemini = GEMINI
+        self.deepseek = DEEPSEEK
 
         self.reactions_parsed_fixed_fn = os.path.join(
             self.reactions.parsed_reactions_dir,

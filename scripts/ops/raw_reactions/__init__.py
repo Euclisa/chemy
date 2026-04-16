@@ -1,2 +1,2 @@
 from .pipeline import RawReactionsPipeline
-from .presets import PRESETS, get_preset
+from .presets import DEFAULT_PRESET_NAMES, get_preset

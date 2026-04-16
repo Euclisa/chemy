@@ -28,7 +28,7 @@ test.html
 !/CMakeLists.txt
 
 data/structures
-data/raw_reactions_legacy_archive/
+/data/archive/
 
 *.pdf
 

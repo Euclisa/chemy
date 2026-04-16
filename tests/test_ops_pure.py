@@ -3,8 +3,16 @@ import json
 from pathlib import Path
 
 from scripts.ops.raw_reactions.fetcher import parse_reactions_jsonl
-from scripts.ops.raw_reactions.presets import get_preset
-from scripts.ops.raw_reactions.prompts import format_structured_reaction
+from tests.conftest import make_reaction
+from scripts.ops.raw_reactions.presets import (
+    DEFAULT_PRESET_NAMES,
+    POSITION_ANY,
+    POSITION_PRODUCT,
+    POSITION_REAGENT,
+    get_preset,
+)
+from scripts.ops.raw_reactions.prompts import build_fetch_prompt, format_structured_reaction
+from scripts.ops.raw_reactions.validator import ACCEPT_THR
 
 
 def test_bigsol_parser_groups_valid_rows_and_converts_units(ops_context):
@@ -229,6 +237,42 @@ def test_format_structured_reaction_includes_phase_note_and_top_level_metadata()
     )
 
 
+def test_raw_reactions_preset_names_parse_base_and_position():
+    any_preset = get_preset("wiki_crc_rp")
+    product_preset = get_preset("wiki_crc_p")
+    reagent_preset = get_preset("default_r")
+
+    assert any_preset.base_name == "wiki_crc"
+    assert any_preset.name == "wiki_crc_rp"
+    assert any_preset.position == POSITION_ANY
+    assert product_preset.position == POSITION_PRODUCT
+    assert reagent_preset.base_name == "default"
+    assert reagent_preset.position == POSITION_REAGENT
+    assert "default_rp" in DEFAULT_PRESET_NAMES
+
+
+def test_raw_reactions_preset_rejects_missing_suffix():
+    try:
+        get_preset("default")
+    except ValueError as e:
+        assert "Expected '<base>_<suffix>'" in str(e)
+    else:
+        raise AssertionError("get_preset accepted an unsuffixed preset name")
+
+
+def test_fetch_prompt_uses_position_wording_and_context():
+    prompt = build_fetch_prompt(
+        "Water",
+        POSITION_PRODUCT,
+        "documented",
+        ["Hydrogen + Oxygen -> Water"],
+    )
+
+    assert "where Water appears as a product" in prompt
+    assert "Generate ADDITIONAL reactions where Water appears as a product" in prompt
+    assert "Hydrogen + Oxygen -> Water" in prompt
+
+
 def test_reaction_llm_parser_structured_parsing_preserves_phase_and_note(ops_context):
     reaction_obj = {
         "reagents": [{"name": "Water", "phase": "l", "note": "neat"}],
@@ -261,37 +305,297 @@ def test_reaction_llm_parser_raw_parsing_filters_invalid_and_deduplicates(ops_co
         "products": [{"name": "Methanol", "phase": "l"}],
     }
 
-    with open(ops_context.raw_reactions.layout.verdict("default"), "w") as f:
-        for entry in [
+    ops_context.store.write_jsonl(
+        [
             {
                 "reaction": valid_reaction,
-                "valid": True,
-                "confidence": 0.9,
+                "confidence": ACCEPT_THR,
                 "source": "openai/gpt-oss-120b",
             },
             {
                 "reaction": duplicate_reaction,
-                "valid": True,
                 "confidence": 0.8,
                 "source": "qwen/qwen3-235b-a22b",
             },
             {
                 "reaction": rejected_reaction,
-                "valid": False,
-                "confidence": 0.1,
+                "confidence": ACCEPT_THR - 0.01,
                 "source": "openai/gpt-oss-120b",
             },
-        ]:
-            f.write(json.dumps(entry) + "\n")
+        ],
+        ops_context.raw_reactions.layout.verdict(),
+        backup=False,
+        no_sort=True,
+    )
 
-    ops_context.raw_reactions.parse(["default"])
+    ops_context.raw_reactions.parse()
     parsed = ops_context.store.load_jsonl(ops_context.reaction_llm.reactions_parsed_llm_fn)
 
     assert len(parsed) == 1
     assert parsed[0]["source"] == "openai/gpt-oss-120b"
-    assert parsed[0]["confidence"] == 0.9
+    assert parsed[0]["confidence"] == ACCEPT_THR
+    assert "valid" not in parsed[0]
     assert parsed[0]["reagents"][0]["phase"] == "l"
     assert parsed[0]["reagents"][0]["note"] == "neat"
+
+
+def test_raw_reaction_validator_results_do_not_persist_valid_flag(ops_context, monkeypatch):
+    reaction = {
+        "cid": ops_context.water["cid"],
+        "reaction": {
+            "reagents": [{"name": "Water", "phase": "l"}],
+            "products": [{"name": "Ethanol", "phase": "l"}],
+        },
+    }
+
+    monkeypatch.setattr(
+        ops_context.llm_client,
+        "fetch_answer_str",
+        lambda *args, **kwargs: "Valid",
+    )
+
+    results = ops_context.raw_reactions._validator.validate_batch(
+        [reaction],
+        model=ops_context.reaction_llm.gpt_oss,
+        max_rounds=1,
+        acceptance_threshold=ACCEPT_THR,
+    )
+
+    assert results[0]["confidence"] == 1.0
+    assert "valid" not in results[0]
+
+
+def test_checked_in_raw_reaction_verdicts_do_not_persist_valid_flag():
+    for path in Path("data/raw_reactions/verdict").glob("*.jsonl"):
+        for line in path.read_text().splitlines():
+            assert '"valid"' not in line
+
+
+def test_global_repair_candidates_group_by_rid_and_skip_accepted_or_repaired(ops_context):
+    repairer = ops_context.raw_reactions._repairer
+    low_reaction = {
+        "reagents": [{"name": "Water", "phase": "l"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    }
+    accepted_reaction = {
+        "reagents": [{"name": "Water", "phase": "l"}],
+        "products": [{"name": "Methanol", "phase": "l"}],
+    }
+    repaired_reaction = {
+        "reagents": [{"name": "Ethanol", "phase": "l"}],
+        "products": [{"name": "Methanol", "phase": "l"}],
+    }
+    repaired_rid, _, _ = repairer._get_reaction_id(repaired_reaction)
+
+    ops_context.store.write_jsonl(
+        [
+            {"cid": ops_context.water["cid"], "reaction": low_reaction, "confidence": 0.2},
+            {
+                "cid": ops_context.water["cid"],
+                "reaction": accepted_reaction,
+                "confidence": ACCEPT_THR,
+            },
+            {
+                "cid": ops_context.ethanol["cid"],
+                "reaction": repaired_reaction,
+                "confidence": 0.3,
+            },
+            {"cid": ops_context.water["cid"], "reaction": low_reaction, "confidence": 0.35},
+        ],
+        ops_context.raw_reactions.layout.verdict(),
+        backup=False,
+        no_sort=True,
+    )
+    ops_context.store.write_jsonl(
+        [{"rid": repaired_rid, "fixed_reaction": None, "reason": "already_done"}],
+        ops_context.raw_reactions.layout.repairs(),
+        backup=False,
+        no_sort=True,
+    )
+
+    candidates = repairer._build_candidate_groups(
+        lower_bound=0.1,
+        acceptance_threshold=ACCEPT_THR,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0]["candidate_count"] == 2
+    assert candidates[0]["original_confidence"] == 0.35
+
+
+def test_repair_batch_outputs_success_null_and_validation_failure(ops_context, monkeypatch):
+    repairer = ops_context.raw_reactions._repairer
+
+    def make_group(reaction, cid):
+        rid, _, _ = repairer._get_reaction_id(reaction)
+        return {
+            "rid": rid,
+            "reaction": reaction,
+            "cid": cid,
+            "candidate_count": 1,
+            "original_confidence": 0.2,
+        }
+
+    success_reaction = {
+        "reagents": [{"name": "Water", "phase": "l"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    }
+    rejected_reaction = {
+        "reagents": [{"name": "Water", "phase": "l"}],
+        "products": [{"name": "Methanol", "phase": "l"}],
+    }
+    null_reaction = {
+        "reagents": [{"name": "Ethanol", "phase": "l"}],
+        "products": [{"name": "Methanol", "phase": "l"}],
+    }
+    groups = [
+        make_group(success_reaction, ops_context.water["cid"]),
+        make_group(rejected_reaction, ops_context.water["cid"]),
+        make_group(null_reaction, ops_context.ethanol["cid"]),
+    ]
+
+    repair_rows = [success_reaction, rejected_reaction, None]
+
+    def fake_repair_fetch(message, *args, **kwargs):
+        body = message.split("\n\n", 1)[1]
+        assert "RID:" not in body
+        assert body.splitlines() == [json.dumps(group["reaction"]) for group in groups]
+        return "\n".join(
+            "null" if row is None else json.dumps(row)
+            for row in repair_rows
+        )
+
+    monkeypatch.setattr(
+        ops_context.llm_client,
+        "fetch_answer_str",
+        fake_repair_fetch,
+    )
+    monkeypatch.setattr(
+        repairer.validator,
+        "validate_batch",
+        lambda entries, **kwargs: [
+            {
+                **entries[0],
+                "confidence": ACCEPT_THR,
+                "source": "validator-model",
+                "rounds": 1,
+                "positives": 1,
+            },
+            {
+                **entries[1],
+                "confidence": ACCEPT_THR - 0.01,
+                "source": "validator-model",
+                "rounds": 1,
+                "positives": 0,
+            },
+        ],
+    )
+
+    results = repairer.repair_batch(
+        groups,
+        repair_model=ops_context.reaction_llm.gpt_oss,
+        validation_model=ops_context.reaction_llm.qwen,
+        acceptance_threshold=ACCEPT_THR,
+    )
+    by_rid = {entry["rid"]: entry for entry in results}
+
+    assert by_rid[groups[0]["rid"]]["fixed_reaction"] == success_reaction
+    assert by_rid[groups[0]["rid"]]["validation_confidence"] == ACCEPT_THR
+    assert "valid" not in by_rid[groups[0]["rid"]]
+    assert by_rid[groups[1]["rid"]]["fixed_reaction"] is None
+    assert by_rid[groups[1]["rid"]]["reason"] == "validation_rejected"
+    assert by_rid[groups[2]["rid"]]["fixed_reaction"] is None
+    assert by_rid[groups[2]["rid"]]["reason"] == "null_repair"
+
+
+def test_parse_uses_global_repairs_only_for_selected_rejected_rids(ops_context):
+    selected_reaction = {
+        "reagents": [{"name": "Water", "phase": "l"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    }
+    unselected_reaction = {
+        "reagents": [{"name": "Ethanol", "phase": "l"}],
+        "products": [{"name": "Methanol", "phase": "l"}],
+    }
+    failed_reaction = {
+        "reagents": [{"name": "Water", "phase": "l"}],
+        "products": [{"name": "Methanol", "phase": "l"}],
+    }
+    selected_rid, selected_parsed, _ = ops_context.raw_reactions._repairer._get_reaction_id(
+        selected_reaction
+    )
+    unselected_rid, _, _ = ops_context.raw_reactions._repairer._get_reaction_id(
+        unselected_reaction
+    )
+    failed_rid, _, _ = ops_context.raw_reactions._repairer._get_reaction_id(
+        failed_reaction
+    )
+
+    ops_context.store.write_jsonl(
+        [
+            {
+                "cid": ops_context.water["cid"],
+                "reaction": selected_reaction,
+                "confidence": ACCEPT_THR - 0.01,
+                "source": "first-pass",
+            },
+            {
+                "cid": ops_context.water["cid"],
+                "reaction": failed_reaction,
+                "confidence": ACCEPT_THR - 0.01,
+                "source": "first-pass",
+            },
+        ],
+        ops_context.raw_reactions.layout.verdict(),
+        backup=False,
+        no_sort=True,
+    )
+    ops_context.store.write_jsonl(
+        [
+            {
+                "rid": selected_rid,
+                "fixed_reaction": selected_reaction,
+                "fixed_rid": selected_parsed["rid"],
+                "candidate_count": 1,
+                "original_confidence": ACCEPT_THR - 0.01,
+                "repair_source": "repair-model",
+                "validation_source": "validator-model",
+                "validation_confidence": ACCEPT_THR,
+                "rounds": 1,
+                "positives": 1,
+            },
+            {
+                "rid": failed_rid,
+                "fixed_reaction": None,
+                "reason": "validation_rejected",
+                "candidate_count": 1,
+                "original_confidence": ACCEPT_THR - 0.01,
+            },
+            {
+                "rid": unselected_rid,
+                "fixed_reaction": unselected_reaction,
+                "fixed_rid": unselected_rid,
+                "candidate_count": 1,
+                "original_confidence": ACCEPT_THR - 0.01,
+                "repair_source": "repair-model",
+                "validation_source": "validator-model",
+                "validation_confidence": ACCEPT_THR,
+                "rounds": 1,
+                "positives": 1,
+            },
+        ],
+        ops_context.raw_reactions.layout.repairs(),
+        backup=False,
+        no_sort=True,
+    )
+
+    ops_context.raw_reactions.parse()
+    parsed = ops_context.store.load_jsonl(ops_context.reaction_llm.reactions_parsed_llm_fn)
+
+    assert len(parsed) == 1
+    assert parsed[0]["rid"] == selected_rid
+    assert parsed[0]["confidence"] == ACCEPT_THR
+    assert parsed[0]["source"] == "repair:repair-model|validate:validator-model"
 
 
 def test_llm_fetch_helpers_and_fallback_schedule(ops_context, monkeypatch, tmp_path):
@@ -331,7 +635,9 @@ def test_llm_fetch_helpers_and_fallback_schedule(ops_context, monkeypatch, tmp_p
 
     monkeypatch.setattr(ops_context.llm_client, "fetch_answer_str", fake_fetch)
 
-    result = ops_context.raw_reactions._fetcher.fetch_one(ops_context.water, get_preset("default"))
+    result = ops_context.raw_reactions._fetcher._fetch_one_with_fallback(
+        ops_context.water, get_preset("default_rp")
+    )
 
     assert result == {"cid": ops_context.water["cid"], "reactions": [structured_reaction]}
     assert calls == [
@@ -341,12 +647,57 @@ def test_llm_fetch_helpers_and_fallback_schedule(ops_context, monkeypatch, tmp_p
     ]
 
 
-def test_llm_fetch_submit_entries_delegates_arguments(ops_context):
+def test_existing_reactions_context_is_filtered_by_requested_position(ops_context):
+    water_to_ethanol = make_reaction(
+        ops_context.reactions,
+        [ops_context.water],
+        [ops_context.ethanol],
+        source="llm",
+    )
+    ethanol_to_water = make_reaction(
+        ops_context.reactions,
+        [ops_context.ethanol],
+        [ops_context.water],
+        source="llm",
+    )
+    ops_context.store.write_jsonl(
+        [water_to_ethanol, ethanol_to_water],
+        ops_context.reaction_llm.reactions_parsed_llm_fn,
+        backup=False,
+    )
+
+    existing = ops_context.raw_reactions._build_existing_reactions_context()
+    ops_context.raw_reactions._fetcher.set_existing_reactions(existing)
+
+    assert ops_context.raw_reactions._fetcher._get_existing_context(
+        ops_context.water["cid"], POSITION_REAGENT
+    ) == ["Water -> Ethanol"]
+    assert ops_context.raw_reactions._fetcher._get_existing_context(
+        ops_context.water["cid"], POSITION_PRODUCT
+    ) == ["Ethanol -> Water"]
+    assert ops_context.raw_reactions._fetcher._get_existing_context(
+        ops_context.water["cid"], POSITION_ANY
+    ) == ["Water -> Ethanol", "Ethanol -> Water"]
+
+
+def test_llm_fetch_submit_entries_delegates_arguments(ops_context, monkeypatch):
     captured = {}
 
-    def fake_submit(out_fn, entries, max_workers, routine, logger, routine_args=None, batch_size=None, description="Generation"):
+    def fake_run_batch(
+        llm_client,
+        entries,
+        routine,
+        out_fn,
+        logger,
+        max_workers=1,
+        routine_args=None,
+        batch_size=None,
+        description="Generation",
+        store=None,
+    ):
         captured.update(
             {
+                "llm_client": llm_client,
                 "out_fn": out_fn,
                 "entries": entries,
                 "max_workers": max_workers,
@@ -355,10 +706,11 @@ def test_llm_fetch_submit_entries_delegates_arguments(ops_context):
                 "routine_args": routine_args,
                 "batch_size": batch_size,
                 "description": description,
+                "store": store,
             }
         )
 
-    ops_context.llm_client.submit_entries_to_llm = fake_submit
+    monkeypatch.setattr("scripts.ops.llm_fetch.run_batch", fake_run_batch)
 
     ops_context.llm_ops._submit_entries_to_llm(
         "out.jsonl",
@@ -371,6 +723,7 @@ def test_llm_fetch_submit_entries_delegates_arguments(ops_context):
     )
 
     assert captured["out_fn"] == "out.jsonl"
+    assert captured["llm_client"] == ops_context.llm_client
     assert captured["entries"] == [1, 2]
     assert captured["max_workers"] == 3
     assert captured["routine_args"] == ["x"]

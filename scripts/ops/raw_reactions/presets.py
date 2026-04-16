@@ -3,10 +3,29 @@ from dataclasses import dataclass
 from typing import Callable
 
 
-@dataclass
+POSITION_ANY = 'any'
+POSITION_REAGENT = 'reagent'
+POSITION_PRODUCT = 'product'
+
+POSITION_SUFFIXES = {
+    'rp': POSITION_ANY,
+    'r': POSITION_REAGENT,
+    'p': POSITION_PRODUCT,
+}
+
+
+@dataclass(frozen=True)
+class RawReactionsBasePreset:
+    name: str
+    scope: str           # "documented" | "documented_less_common" | "rare"
+    build_criteria: Callable  # (compounds) -> Callable[[dict], bool]
+
+
+@dataclass(frozen=True)
 class RawReactionsPreset:
     name: str
-    compound_role: str   # "reactant or product" | "product"
+    base_name: str
+    position: str        # "any" | "reagent" | "product"
     scope: str           # "documented" | "documented_less_common" | "rare"
     build_criteria: Callable  # (compounds) -> Callable[[dict], bool]
 
@@ -78,73 +97,102 @@ def _build_simple_organic_wiki_criteria(compounds):
     )
 
 
-PRESETS = {
-    "default": RawReactionsPreset(
-        name="default",
-        compound_role="reactant or product",
-        scope="documented",
+BASE_PRESETS = {
+    'default': RawReactionsBasePreset(
+        name='default',
+        scope='documented',
         build_criteria=lambda compounds: _mapped,
     ),
-    "wiki_crc_rp": RawReactionsPreset(
-        name="wiki_crc_rp",
-        compound_role="reactant or product",
-        scope="documented_less_common",
+    'wiki_crc': RawReactionsBasePreset(
+        name='wiki_crc',
+        scope='documented_less_common',
         build_criteria=_build_wiki_crc_criteria,
     ),
-    "simple_inorganic_wiki_rp": RawReactionsPreset(
-        name="simple_inorganic_wiki_rp",
-        compound_role="reactant or product",
-        scope="documented_less_common",
+    'simple_inorganic_wiki': RawReactionsBasePreset(
+        name='simple_inorganic_wiki',
+        scope='documented_less_common',
         build_criteria=_build_simple_inorganic_wiki_criteria,
     ),
-    "simple_organic_wiki_rp": RawReactionsPreset(
-        name="simple_organic_wiki_rp",
-        compound_role="reactant or product",
-        scope="documented_less_common",
+    'simple_organic_wiki': RawReactionsBasePreset(
+        name='simple_organic_wiki',
+        scope='documented_less_common',
         build_criteria=_build_simple_organic_wiki_criteria,
     ),
-    "oxidizers_wiki_rp": RawReactionsPreset(
-        name="oxidizers_wiki_rp",
-        compound_role="reactant or product",
-        scope="documented_less_common",
+    'oxidizers_wiki': RawReactionsBasePreset(
+        name='oxidizers_wiki',
+        scope='documented_less_common',
         build_criteria=_build_wiki_hazard_criteria({'GHS03'}),
     ),
-    "corrosive_wiki_rp": RawReactionsPreset(
-        name="corrosive_wiki_rp",
-        compound_role="reactant or product",
-        scope="documented_less_common",
+    'corrosive_wiki': RawReactionsBasePreset(
+        name='corrosive_wiki',
+        scope='documented_less_common',
         build_criteria=_build_wiki_hazard_criteria({'GHS05'}),
     ),
-    "wiki_uncommon_rp": RawReactionsPreset(
-        name="wiki_uncommon_rp",
-        compound_role="reactant or product",
-        scope="documented_less_common",
+    'wiki_uncommon': RawReactionsBasePreset(
+        name='wiki_uncommon',
+        scope='documented_less_common',
         build_criteria=lambda compounds: lambda chem: _mapped(chem) and _has_wiki(chem),
     ),
-    "top_rare_rp": RawReactionsPreset(
-        name="top_rare_rp",
-        compound_role="reactant or product",
-        scope="rare",
+    'top_rare': RawReactionsBasePreset(
+        name='top_rare',
+        scope='rare',
         build_criteria=_build_dangerous_criteria,
     ),
-    "wiki_uncommon_p": RawReactionsPreset(
-        name="wiki_uncommon_p",
-        compound_role="product",
-        scope="documented_less_common",
-        build_criteria=lambda compounds: lambda chem: _mapped(chem) and _has_wiki(chem),
-    ),
-    "annotated_uncommon_p": RawReactionsPreset(
-        name="annotated_uncommon_p",
-        compound_role="product",
-        scope="documented_less_common",
+    'annotated_uncommon': RawReactionsBasePreset(
+        name='annotated_uncommon',
+        scope='documented_less_common',
         build_criteria=lambda compounds: lambda chem: (
             _mapped(chem) and _has_annotation(chem) and not _has_wiki(chem)
         ),
     ),
 }
 
+DEFAULT_PRESET_NAMES = (
+    'default_rp',
+    'wiki_crc_rp',
+    'simple_inorganic_wiki_rp',
+    'simple_organic_wiki_rp',
+    'oxidizers_wiki_rp',
+    'corrosive_wiki_rp',
+    'wiki_uncommon_rp',
+    'top_rare_rp',
+    'wiki_uncommon_p',
+    'annotated_uncommon_p',
+)
+
+
+def list_base_preset_names():
+    return tuple(BASE_PRESETS)
+
+
+def list_position_suffixes():
+    return tuple(POSITION_SUFFIXES)
+
+
+def _format_preset_error(name):
+    bases = ', '.join(list_base_preset_names())
+    suffixes = ', '.join(list_position_suffixes())
+    return (
+        f"Unknown preset '{name}'. Expected '<base>_<suffix>' where "
+        f"base is one of [{bases}] and suffix is one of [{suffixes}]."
+    )
+
 
 def get_preset(name: str) -> RawReactionsPreset:
-    if name not in PRESETS:
-        raise ValueError(f"Unknown preset '{name}'. Available: {list(PRESETS)}")
-    return PRESETS[name]
+    try:
+        base_name, suffix = name.rsplit('_', 1)
+    except ValueError:
+        raise ValueError(_format_preset_error(name))
+
+    base = BASE_PRESETS.get(base_name)
+    position = POSITION_SUFFIXES.get(suffix)
+    if base is None or position is None:
+        raise ValueError(_format_preset_error(name))
+
+    return RawReactionsPreset(
+        name=name,
+        base_name=base.name,
+        position=position,
+        scope=base.scope,
+        build_criteria=base.build_criteria,
+    )

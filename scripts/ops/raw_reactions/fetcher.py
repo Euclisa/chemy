@@ -1,67 +1,20 @@
 import json
 
-from .prompts import VALID_PHASES, build_fetch_prompt, build_revalidate_prompt
+from .prompts import build_fetch_prompt, build_revalidate_prompt
+from .presets import POSITION_ANY, POSITION_PRODUCT, POSITION_REAGENT
+from .schema import is_valid_compound, is_valid_reaction_obj, normalize_reaction_obj
+from scripts.infra.batch_runner import run_batch
+from scripts.infra.fallback import with_fallback
 
 
-REACTION_KEYS = frozenset({'reagents', 'products', 'solvent', 'catalyst'})
-COMPOUND_KEYS = frozenset({'name', 'phase', 'note'})
+_is_valid_compound = is_valid_compound
+_is_valid_reaction_obj = is_valid_reaction_obj
+_normalize_reaction_obj = normalize_reaction_obj
 
 
 def _count(stats, key):
     if stats is not None:
         stats[key] = stats.get(key, 0) + 1
-
-
-def _is_valid_compound(compound):
-    if not isinstance(compound, dict):
-        return False
-    if not set(compound).issubset(COMPOUND_KEYS):
-        return False
-    if not isinstance(compound.get('name'), str) or not compound['name'].strip():
-        return False
-    if compound.get('phase') not in VALID_PHASES:
-        return False
-    if 'note' in compound and (
-        not isinstance(compound['note'], str) or not compound['note'].strip()
-    ):
-        return False
-    return True
-
-
-def _is_valid_reaction_obj(obj):
-    if not isinstance(obj, dict):
-        return False
-    if not set(obj).issubset(REACTION_KEYS):
-        return False
-    for key in ('reagents', 'products'):
-        compounds = obj.get(key)
-        if not isinstance(compounds, list) or not compounds:
-            return False
-        if not all(_is_valid_compound(c) for c in compounds):
-            return False
-    for key in ('solvent', 'catalyst'):
-        if key in obj and obj[key] is not None and (
-            not isinstance(obj[key], str) or not obj[key].strip()
-        ):
-            return False
-    return True
-
-
-def _normalize_reaction_obj(obj):
-    for key in ('reagents', 'products'):
-        for compound in obj[key]:
-            compound['name'] = compound['name'].strip()
-            if 'note' in compound:
-                compound['note'] = compound['note'].strip()
-    if not isinstance(obj.get('solvent'), str):
-        obj['solvent'] = None
-    else:
-        obj['solvent'] = obj['solvent'].strip()
-    if not isinstance(obj.get('catalyst'), str):
-        obj['catalyst'] = None
-    else:
-        obj['catalyst'] = obj['catalyst'].strip()
-    return obj
 
 
 def parse_reactions_jsonl(response, stats=None):
@@ -76,10 +29,10 @@ def parse_reactions_jsonl(response, stats=None):
         except (json.JSONDecodeError, TypeError):
             _count(stats, 'malformed_json')
             continue
-        if not _is_valid_reaction_obj(obj):
+        if not is_valid_reaction_obj(obj):
             _count(stats, 'invalid_schema')
             continue
-        reactions.append(_normalize_reaction_obj(obj))
+        reactions.append(normalize_reaction_obj(obj))
         _count(stats, 'accepted')
     return reactions
 
@@ -99,8 +52,23 @@ class RawReactionsFetcher:
     def set_existing_reactions(self, existing_by_cid):
         self._existing_by_cid = existing_by_cid or {}
 
-    def _get_existing_context(self, cid):
-        reactions = self._existing_by_cid.get(cid, [])
+    def _get_existing_context(self, cid, position):
+        by_position = self._existing_by_cid.get(cid, {})
+        if position == POSITION_REAGENT:
+            reactions = by_position.get(POSITION_REAGENT, [])
+        elif position == POSITION_PRODUCT:
+            reactions = by_position.get(POSITION_PRODUCT, [])
+        elif position == POSITION_ANY:
+            reactions = []
+            seen = set()
+            for side in (POSITION_REAGENT, POSITION_PRODUCT):
+                for reaction in by_position.get(side, []):
+                    if reaction in seen:
+                        continue
+                    seen.add(reaction)
+                    reactions.append(reaction)
+        else:
+            raise ValueError(f"Unknown position: {position!r}")
         return reactions[:self.MAX_EXISTING_CONTEXT]
 
     def _log_parse_stats(self, chem_name, label, stats):
@@ -113,33 +81,29 @@ class RawReactionsFetcher:
                 f"{label} skipped {skipped} lines for '{chem_name}': {stats}"
             )
 
-    def fetch_one(self, chem, preset):
+    def fetch_one(self, chem, preset, model):
+        """Fetch reactions for one compound using a single model.
+
+        Returns a result dict with 'cid' and 'reactions' on success, or None
+        when the model returns no usable reactions.
+        """
         chem_name = chem['cmpdname']
-        existing = self._get_existing_context(chem['cid'])
+        existing = self._get_existing_context(chem['cid'], preset.position)
         fetch_prompt = build_fetch_prompt(
-            chem_name, preset.compound_role, preset.scope, existing,
+            chem_name, preset.position, preset.scope, existing,
         )
 
-        reactions = None
-        chosen_model = None
-        for model in self.models:
-            response = self.llm_client.fetch_answer_str(fetch_prompt, model)
-            stats = {}
-            reactions = parse_reactions_jsonl(response, stats)
-            self._log_parse_stats(chem_name, f"Fetch response from '{model}'", stats)
-            if reactions:
-                chosen_model = model
-                break
+        response = self.llm_client.fetch_answer_str(fetch_prompt, model)
+        stats = {}
+        reactions = parse_reactions_jsonl(response, stats)
+        self._log_parse_stats(chem_name, f"Fetch response from '{model}'", stats)
 
         if not reactions:
-            self.logger.log_warn(f"Failed to fetch reactions for '{chem_name}'")
-            return {'cid': chem['cid'], 'reactions': None}
+            return None
 
         reactions_jsonl_str = '\n'.join(json.dumps(r) for r in reactions)
         revalidate_prompt = build_revalidate_prompt(reactions_jsonl_str)
-        revalidated_response = self.llm_client.fetch_answer_str(
-            revalidate_prompt, chosen_model,
-        )
+        revalidated_response = self.llm_client.fetch_answer_str(revalidate_prompt, model)
         stats = {}
         revalidated = parse_reactions_jsonl(revalidated_response, stats)
         self._log_parse_stats(chem_name, "Revalidation response", stats)
@@ -151,24 +115,36 @@ class RawReactionsFetcher:
             revalidated = reactions
 
         self.logger.log(
-            f"Got {len(revalidated)} reactions for '{chem_name}' with '{chosen_model}'; "
+            f"Got {len(revalidated)} reactions for '{chem_name}' with '{model}'; "
             f"CTT: {self.llm_client.completion_tokens_total}"
         )
         return {'cid': chem['cid'], 'reactions': revalidated}
 
-    def fetch_all(self, preset, max_workers=1):
-        raw_fn = self.layout.raw(preset.name)
+    def _fetch_one_with_fallback(self, chem, preset):
+        result = with_fallback(
+            lambda model: self.fetch_one(chem, preset, model),
+            self.models,
+            logger=self.logger,
+        )
+        if result is not None:
+            return result
+        self.logger.log_warn(f"Failed to fetch reactions for '{chem['cmpdname']}'")
+        return {'cid': chem['cid'], 'reactions': None}
+
+    def fetch_all(self, preset, max_workers=1, run=None):
+        raw_fn = self.layout.raw(preset.name, run=run)
         processed = {x['cid'] for x in self.store.load_jsonl(raw_fn)}
         criteria = preset.build_criteria(self.compounds)
         staged = [
             chem for chem in self.compounds.chems
             if chem['cid'] not in processed and criteria(chem)
         ]
-        self.llm_client.submit_entries_to_llm(
-            raw_fn,
+        run_batch(
+            self.llm_client,
             staged,
-            max_workers,
-            lambda chem: self.fetch_one(chem, preset),
+            lambda chem: self._fetch_one_with_fallback(chem, preset),
+            raw_fn,
             self.logger,
+            max_workers=max_workers,
             description=f"Fetching reactions [{preset.name}]",
         )

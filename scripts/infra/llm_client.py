@@ -1,8 +1,5 @@
 import threading
 import os
-import json
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from contextlib import contextmanager
 
@@ -84,25 +81,13 @@ class LLMClient:
 
         return result
 
-    def submit_entries_to_llm(self, out_fn, entries, max_workers, routine, logger, routine_args=[], batch_size=None, description="Generation"):
-        logger.log(f"{description}: submitted {len(entries)} entries")
-        with ThreadPoolExecutor(max_workers=max_workers) as executor, open(out_fn, 'a') as f_out:
-            futures = [
-                executor.submit(routine, entry, *routine_args)
-                for entry in entries
-            ] if batch_size is None else [
-                executor.submit(routine, entries[i:i+batch_size], *routine_args)
-                for i in range(0, len(entries), batch_size)
-            ]
-
-            for future in logger.track(as_completed(futures), description, total=len(futures)):
-                res = self.get_future_result(future, executor)
-                if res is None:
-                    continue
-
-                if isinstance(res, list):
-                    for item in res:
-                        f_out.write(json.dumps(item) + '\n')
-                else:
-                    f_out.write(json.dumps(res) + '\n')
-                f_out.flush()
+    @contextmanager
+    def track_usage(self):
+        start_ct = self.completion_tokens_total
+        start_it = self.input_tokens_total
+        usage = {}
+        try:
+            yield usage
+        finally:
+            usage['completion_tokens'] = self.completion_tokens_total - start_ct
+            usage['input_tokens'] = self.input_tokens_total - start_it

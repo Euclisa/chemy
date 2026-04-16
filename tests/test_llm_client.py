@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from scripts.infra.batch_runner import run_batch
 from scripts.infra.llm_client import LLMClient
+from scripts.infra.store import JsonlStore
 
 
 def _build_completion(content, prompt_tokens=3, completion_tokens=7):
@@ -83,32 +85,59 @@ def test_get_future_result_reraises_completion_limit():
             client.get_future_result(future, executor)
 
 
-def test_submit_entries_to_llm_writes_single_items_lists_and_batches(tmp_path):
+def test_run_batch_writes_single_items_lists_and_batches(tmp_path):
     client = LLMClient(logger=None)
     out_fn = tmp_path / "llm.jsonl"
     logs = []
     logger = SimpleNamespace(log=logs.append, track=lambda it, *args, **kwargs: it)
 
-    client.submit_entries_to_llm(
-        str(out_fn),
+    run_batch(
+        client,
         [1, 2, 3],
-        2,
         lambda entry: {"value": entry},
+        str(out_fn),
         logger,
+        max_workers=2,
     )
 
     written_values = sorted(int(line.split(": ")[1].rstrip("}")) for line in out_fn.read_text().strip().splitlines())
     assert written_values == [1, 2, 3]
-    assert logs == ["Generation: submitted 3 entries"]
+    assert logs == ["Processing: submitted 3 entries"]
 
-    client.submit_entries_to_llm(
-        str(out_fn),
+    run_batch(
+        client,
         [4, 5, 6, 7],
-        2,
         lambda batch: [{"value": item} for item in batch],
+        str(out_fn),
         logger,
+        max_workers=2,
         batch_size=2,
     )
 
     final_values = sorted(int(line.split(": ")[1].rstrip("}")) for line in out_fn.read_text().strip().splitlines())
     assert final_values == [1, 2, 3, 4, 5, 6, 7]
+
+
+def test_run_batch_uses_store_stream_append_for_vault(tmp_path):
+    client = LLMClient(logger=None)
+    store = JsonlStore()
+    store._dir_vault_entries_per_file = 2
+
+    vault_dir = str(tmp_path / "vault")
+    store.register_vault(vault_dir, "v_")
+
+    logs = []
+    logger = SimpleNamespace(log=logs.append, track=lambda it, *args, **kwargs: it)
+
+    run_batch(
+        client,
+        [1, 2, 3],
+        lambda entry: {"value": entry},
+        vault_dir,
+        logger,
+        max_workers=1,
+        store=store,
+    )
+
+    loaded = store.load_jsonl(vault_dir)
+    assert sorted(e["value"] for e in loaded) == [1, 2, 3]
