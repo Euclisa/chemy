@@ -13,3 +13,4 @@ def test_chemy_wires_composed_services(sample_data_dir):
     assert chemy.thermo_experiments.properties is chemy.properties
     assert chemy.thermo_xtb.thermo is chemy.thermo
     assert chemy.thermo_llm.reaction_parser is chemy.reaction_llm
+    assert chemy.raw_reaction_synonyms.parser is chemy.reaction_llm
