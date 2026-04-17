@@ -36,6 +36,9 @@ DEFAULT_CONFIG = {
     "complexity_bands": ["simple", "medium", "hard"],
     "generation_self_review": True,
     "gold_rounds": 3,
+    "validation_rounds": 3,
+    "validation_thresholds": [round(i / 10, 1) for i in range(11)],
+    "validation_batch_size": 5,
 }
 
 

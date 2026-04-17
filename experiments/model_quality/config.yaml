@@ -9,7 +9,6 @@ candidate_models:
   - qwen/qwen3-235b-a22b
   - x-ai/grok-4-fast
   - deepseek/deepseek-v3.2
-  - minimax/minimax-m2.7
 
 bakeoff_presets:
   - wiki_crc_rp
@@ -25,3 +24,6 @@ complexity_bands:
   - hard
 generation_self_review: false
 gold_rounds: 3
+validation_rounds: 7
+validation_thresholds: [0.0, 0.1, 0.3, 0.5, 0.7, 0.9, 1.0]
+validation_batch_size: 5

@@ -1,5 +1,5 @@
 """
-Entry point for raw reactions extraction and/or validation.
+Entry point for raw reactions extraction, validation, repair, and parsing.
 
 Usage examples:
     # fetch + validate in one step (default, continues latest run)
@@ -20,6 +20,9 @@ Usage examples:
     # repair borderline rejected verdicts (global, no preset needed)
     python -m scripts.run.fetch_reactions --repair-only
 
+    # parse accepted verdicts and repairs into parsed reaction records
+    python -m scripts.run.fetch_reactions --parse-only
+
     # fetch + validate for every preset
     python -m scripts.run.fetch_reactions --all
 
@@ -34,7 +37,7 @@ from scripts.ops.raw_reactions.presets import DEFAULT_PRESET_NAMES, get_preset
 
 
 def main():
-    parser = base_parser(description="Fetch and/or validate raw LLM reactions.")
+    parser = base_parser(description="Fetch, validate, repair, and parse raw LLM reactions.")
 
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("preset", nargs="?",
@@ -43,6 +46,8 @@ def main():
                        help="Run the default preset suite in sequence")
     group.add_argument("--repair-only", action="store_true",
                        help="Repair borderline rejected verdicts (global, no preset needed)")
+    group.add_argument("--parse-only", action="store_true",
+                       help="Parse accepted verdicts and repairs (global, no preset needed)")
 
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--fetch-only", action="store_true",
@@ -68,6 +73,14 @@ def main():
         if args.fetch_only or args.validate_only:
             parser.error("--fetch-only/--validate-only are not applicable with --repair-only")
 
+    if args.parse_only:
+        if args.run:
+            parser.error("--run is not meaningful with --parse-only")
+        if args.fetch_only or args.validate_only:
+            parser.error("--fetch-only/--validate-only are not applicable with --parse-only")
+        if args.with_repair:
+            parser.error("--with-repair is not meaningful with --parse-only")
+
     if args.run and args.validate_only:
         parser.error("--run is not meaningful with --validate-only")
 
@@ -83,6 +96,10 @@ def main():
             lower_bound=args.repair_lower_bound,
             acceptance_threshold=args.acceptance_threshold,
         )
+        return
+
+    if args.parse_only:
+        pipeline.parse(acceptance_threshold=args.acceptance_threshold)
         return
 
     preset_names = DEFAULT_PRESET_NAMES if args.all else [args.preset]

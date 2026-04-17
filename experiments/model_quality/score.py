@@ -6,6 +6,7 @@ from .helpers import build_arg_parser, load_config, read_jsonl
 
 
 _PARSE_FAILURE_KEYS = ("null_or_empty", "malformed_json", "invalid_schema")
+_DEFAULT_VALIDATION_THRESHOLDS = [round(i / 10, 1) for i in range(11)]
 
 
 def _mean(values):
@@ -66,11 +67,148 @@ def _gold_metrics(rows, gold_by_candidate):
     }
 
 
-def build_summary(*, data_dir):
+def _threshold_key(threshold):
+    return f"{threshold:.1f}"
+
+
+def _validation_confidence(row):
+    return row.get("validation_confidence", row.get("confidence", 0.0)) or 0.0
+
+
+def _validation_key(row):
+    candidate_id = row.get("candidate_id") or row.get("sample_id")
+    validation_model = row.get("validation_model") or row.get("source")
+    return candidate_id, validation_model
+
+
+def _latest_self_validations(rows):
+    latest = {}
+    for row in rows:
+        key = _validation_key(row)
+        if all(key):
+            latest[key] = row
+    return latest
+
+
+def _gold_confidences(rows, gold_by_candidate):
+    values = []
+    for row in rows:
+        audit = gold_by_candidate.get(row.get("candidate_id"))
+        if audit is not None:
+            values.append(audit.get("gold_confidence", 0.0))
+    return values
+
+
+def _self_validation_summary(
+    candidates_by_model,
+    validation_rows,
+    gold_by_candidate,
+    model_summaries,
+    thresholds,
+):
+    latest_validations = _latest_self_validations(validation_rows)
+    models = {}
+    threshold_summary = {
+        _threshold_key(threshold): {}
+        for threshold in thresholds
+    }
+
+    for model, rows in candidates_by_model.items():
+        validated = []
+        for row in rows:
+            validation = latest_validations.get((row.get("candidate_id"), model))
+            if validation is not None:
+                validated.append((row, validation))
+
+        validation_confidences = [
+            _validation_confidence(validation)
+            for _, validation in validated
+        ]
+        gold_for_validated = _gold_confidences(
+            [row for row, _ in validated],
+            gold_by_candidate,
+        )
+        models[model] = {
+            "candidate_n": len(rows),
+            "validated_n": len(validated),
+            "validation_coverage": _rate(len(validated), len(rows)),
+            "mean_validation_confidence": _mean(validation_confidences),
+            "gold_audited_validated_n": len(gold_for_validated),
+            "gold_mean_for_validated": _mean(gold_for_validated),
+        }
+
+        total_gold_mass = sum(gold_for_validated)
+        total_tokens = (
+            model_summaries[model].get("input_tokens", 0)
+            + model_summaries[model].get("completion_tokens", 0)
+        )
+        for threshold in thresholds:
+            accepted = [
+                row for row, validation in validated
+                if _validation_confidence(validation) >= threshold
+            ]
+            rejected = [
+                row for row, validation in validated
+                if _validation_confidence(validation) < threshold
+            ]
+            accepted_gold = _gold_confidences(accepted, gold_by_candidate)
+            rejected_gold = _gold_confidences(rejected, gold_by_candidate)
+            gm = _gold_metrics(accepted, gold_by_candidate)
+            accepted_rids = {
+                row.get("rid")
+                for row in accepted
+                if row.get("rid") is not None
+            }
+            accepted_expected_valid = sum(accepted_gold)
+            accepted_expected_invalid = sum(1.0 - value for value in accepted_gold)
+            rejected_expected_valid = sum(rejected_gold)
+
+            threshold_summary[_threshold_key(threshold)][model] = {
+                "candidate_n": len(rows),
+                "validated_n": len(validated),
+                "accepted_candidate_n": len(accepted),
+                "accepted_rate": _rate(len(accepted), len(validated)),
+                "accepted_candidate_coverage": _rate(len(accepted), len(rows)),
+                "accepted_unique_rid_n": len(accepted_rids),
+                "accepted_parsed_rate": _mean(
+                    [1.0 if row.get("parsed") else 0.0 for row in accepted]
+                ),
+                "accepted_balance_success_rate": _mean(
+                    [1.0 if row.get("balance_success") else 0.0 for row in accepted]
+                ),
+                "accepted_gold_audited_n": len(accepted_gold),
+                "accepted_mean_gold_confidence": _mean(accepted_gold),
+                "accepted_expected_valid_candidate_n": accepted_expected_valid,
+                "accepted_expected_unique_valid_rid_n": (
+                    gm["expected_unique_valid_rid_n"]
+                ),
+                "accepted_expected_unique_valid_rids_per_1k_tokens": (
+                    gm["expected_unique_valid_rid_n"] / total_tokens * 1000
+                    if total_tokens else 0.0
+                ),
+                "precision_estimate": _mean(accepted_gold),
+                "recall_estimate": _rate(accepted_expected_valid, total_gold_mass),
+                "false_accept_gold_confidence_sum": accepted_expected_invalid,
+                "rejected_valid_gold_confidence_sum": rejected_expected_valid,
+            }
+
+    return {
+        "models": models,
+        "thresholds": threshold_summary,
+    }
+
+
+def build_summary(*, data_dir, validation_thresholds=None):
     data_dir = Path(data_dir)
     generations = read_jsonl(data_dir / "generations.jsonl")
     candidates = read_jsonl(data_dir / "candidates.jsonl")
     gold_raw = read_jsonl(data_dir / "gold_audits.jsonl")
+    validation_raw = read_jsonl(data_dir / "self_validation_runs.jsonl")
+    thresholds = (
+        validation_thresholds
+        if validation_thresholds is not None
+        else _DEFAULT_VALIDATION_THRESHOLDS
+    )
     # gold_audits.jsonl is append-only; last entry per candidate_id wins.
     gold_by_candidate = {}
     for entry in gold_raw:
@@ -167,10 +305,18 @@ def build_summary(*, data_dir):
     return {
         "models": dict(by_model),
         "bands": bands,
+        "self_validation": _self_validation_summary(
+            candidates_by_model,
+            validation_raw,
+            gold_by_candidate,
+            by_model,
+            thresholds,
+        ),
         "inputs": {
             "generations": len(generations),
             "candidates": len(candidates),
             "gold_audits": len(gold_raw),
+            "self_validations": len(validation_raw),
         },
     }
 
@@ -183,7 +329,11 @@ def main(argv=None):
         help="Optional JSON path for summary output.",
     )
     args = parser.parse_args(argv)
-    summary = build_summary(data_dir=args.data_dir)
+    config = load_config(args.config)
+    summary = build_summary(
+        data_dir=args.data_dir,
+        validation_thresholds=config.get("validation_thresholds"),
+    )
     payload = json.dumps(summary, indent=2)
     if args.out:
         out_path = Path(args.out)

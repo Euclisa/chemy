@@ -6,6 +6,7 @@ from experiments.model_quality.run_gold_audit import run_gold_audit
 from experiments.model_quality.run_generation import run_generation
 from experiments.model_quality.sample import split_complexity_bands
 from experiments.model_quality.score import build_summary
+from experiments.model_quality.run_self_validation import run_self_validation
 
 
 def reaction(name="Water", product="Ethanol"):
@@ -178,6 +179,75 @@ def test_gold_audit_parallel_batches_aggregate_one_row_per_candidate(tmp_path):
     assert all(entry["gold_rounds"] == 2 for entry in audits)
 
 
+def test_self_validation_uses_each_candidate_model(tmp_path, monkeypatch):
+    monkeypatch.setattr("experiments.model_quality.run_self_validation.Chemy", FakeChemy)
+    data_dir = tmp_path / "bakeoff"
+    candidates = [
+        {
+            "candidate_id": "c1",
+            "task_id": "t1",
+            "model": "model-a",
+            "rid": "r1",
+            "cid": 1,
+            "reaction": reaction(),
+        },
+        {
+            "candidate_id": "c2",
+            "task_id": "t2",
+            "model": "model-b",
+            "rid": "r2",
+            "cid": 1,
+            "reaction": reaction(product="Methanol"),
+        },
+    ]
+    write_jsonl(candidates, data_dir / "candidates.jsonl")
+    client = FakeLLMClient([
+        "1. Valid",
+        "1. Invalid",
+        "1. Valid",
+        "1. Valid",
+    ])
+    config = {
+        "chemy_data_dir": "data",
+        "candidate_models": ["model-a", "model-b"],
+        "validation_rounds": 2,
+        "validation_batch_size": 1,
+        "max_workers": 1,
+    }
+
+    manifest = run_self_validation(
+        config,
+        data_dir=data_dir,
+        llm_client=client,
+        max_workers=1,
+    )
+    validations = read_jsonl(data_dir / "self_validation_runs.jsonl")
+
+    assert manifest["ran"] == 2
+    assert [call["model"] for call in client.calls] == [
+        "model-a",
+        "model-a",
+        "model-b",
+        "model-b",
+    ]
+    assert {entry["candidate_id"] for entry in validations} == {"c1", "c2"}
+    assert {entry["generator_model"] for entry in validations} == {
+        "model-a",
+        "model-b",
+    }
+    assert validations[0]["validation_rounds"] == 2
+    assert validations[0]["validation_confidence"] == 0.5
+
+    rerun_manifest = run_self_validation(
+        config,
+        data_dir=data_dir,
+        llm_client=client,
+        max_workers=1,
+    )
+    assert rerun_manifest["ran"] == 0
+    assert rerun_manifest["skipped"] == 2
+
+
 def test_score_summary_handles_failed_duplicate_and_gold_rejected_outputs(tmp_path):
     data_dir = tmp_path / "bakeoff"
     write_jsonl(
@@ -241,3 +311,95 @@ def test_score_summary_handles_failed_duplicate_and_gold_rejected_outputs(tmp_pa
     assert model["mean_gold_confidence"] == 0.5
     assert model["expected_unique_valid_rid_n"] == 1.0
     assert model["macro_mean_gold_confidence"] == 0.5
+
+
+def test_score_summary_adds_self_validation_threshold_metrics(tmp_path):
+    data_dir = tmp_path / "bakeoff"
+    write_jsonl(
+        [
+            {
+                "generation_id": "g1",
+                "task_id": "t1",
+                "model": "model-a",
+                "parse_stats": {"accepted": 2},
+                "usage": {"input_tokens": 100, "completion_tokens": 100},
+            }
+        ],
+        data_dir / "generations.jsonl",
+    )
+    write_jsonl(
+        [
+            {
+                "candidate_id": "c1",
+                "task_id": "t1",
+                "model": "model-a",
+                "rid": "r1",
+                "output_id": "o1",
+                "parsed": True,
+                "target_compound_present": True,
+                "target_position_correct": True,
+                "balance_success": True,
+                "preset": "default_rp",
+                "complexity_band": "simple",
+            },
+            {
+                "candidate_id": "c2",
+                "task_id": "t1",
+                "model": "model-a",
+                "rid": "r2",
+                "output_id": "o2",
+                "parsed": True,
+                "target_compound_present": True,
+                "target_position_correct": True,
+                "balance_success": False,
+                "preset": "default_rp",
+                "complexity_band": "simple",
+            },
+        ],
+        data_dir / "candidates.jsonl",
+    )
+    write_jsonl(
+        [
+            {"candidate_id": "c1", "gold_confidence": 1.0, "model": "model-a"},
+            {"candidate_id": "c2", "gold_confidence": 0.0, "model": "model-a"},
+        ],
+        data_dir / "gold_audits.jsonl",
+    )
+    write_jsonl(
+        [
+            {
+                "candidate_id": "c1",
+                "sample_id": "c1",
+                "generator_model": "model-a",
+                "validation_model": "model-a",
+                "validation_confidence": 1.0,
+                "validation_rounds": 2,
+                "validation_positives": 2,
+            },
+            {
+                "candidate_id": "c2",
+                "sample_id": "c2",
+                "generator_model": "model-a",
+                "validation_model": "model-a",
+                "validation_confidence": 0.0,
+                "validation_rounds": 2,
+                "validation_positives": 0,
+            },
+        ],
+        data_dir / "self_validation_runs.jsonl",
+    )
+
+    summary = build_summary(data_dir=data_dir, validation_thresholds=[0.0, 0.5])
+    model = summary["self_validation"]["models"]["model-a"]
+    accepted_all = summary["self_validation"]["thresholds"]["0.0"]["model-a"]
+    accepted_half = summary["self_validation"]["thresholds"]["0.5"]["model-a"]
+
+    assert summary["inputs"]["self_validations"] == 2
+    assert model["validated_n"] == 2
+    assert model["validation_coverage"] == 1.0
+    assert accepted_all["accepted_candidate_n"] == 2
+    assert accepted_all["accepted_mean_gold_confidence"] == 0.5
+    assert accepted_half["accepted_candidate_n"] == 1
+    assert accepted_half["accepted_mean_gold_confidence"] == 1.0
+    assert accepted_half["accepted_expected_unique_valid_rid_n"] == 1.0
+    assert accepted_half["rejected_valid_gold_confidence_sum"] == 0.0

@@ -3,7 +3,8 @@
 This experiment compares raw-reaction generation models from scratch. It freezes
 the same compound tasks for every candidate model, stratifies tasks by existing
 presets and compound complexity, stores raw model outputs, normalizes generated
-reactions into candidates, and audits candidates with a configurable strong model.
+reactions into candidates, audits candidates with a configurable strong model,
+and can optionally measure each model's ability to validate its own candidates.
 
 All experiment state is written under `experiments/model_quality/data/`.
 Production `chemy.raw_reactions.fetch/validate/repair/parse` behavior uses the
@@ -19,13 +20,14 @@ jupyter notebook experiments/model_quality/notebooks/model_bakeoff.ipynb
 ```
 
 The notebook centralizes config review, smoke-mode overrides, task freezing,
-candidate generation, gold audit, scoring, output previews, and plots. Live model
-calls are guarded by explicit switches in the setup cell:
+candidate generation, gold audit, self-validation, scoring, output previews, and
+plots. Live model calls are guarded by explicit switches in the setup cell:
 
 ```python
 RUN_FREEZE_TASKS = False
 RUN_GENERATION = False
 RUN_GOLD_AUDIT = False
+RUN_SELF_VALIDATION = False
 RUN_SCORE = True
 SMOKE_MODE = True
 SMOKE_GENERATION_RUN_LIMIT = 2
@@ -42,9 +44,9 @@ candidate model, disables generation self-review, and caps new generation runs s
 stage 3 stays interactive. Smoke outputs go to `experiments/model_quality/data_smoke/`;
 full-run outputs go to `experiments/model_quality/data/`.
 
-`max_workers` controls parallel model calls for generation and gold-audit batches.
-Keep it modest because provider rate limits can make higher values slower or
-noisier.
+`max_workers` controls parallel model calls for generation, gold-audit, and
+self-validation batches. Keep it modest because provider rate limits can make
+higher values slower or noisier.
 
 ## CLI Workflow
 
@@ -72,6 +74,12 @@ Run the strong-model gold audit:
 
 ```bash
 python -m experiments.model_quality.run_gold_audit --workers 2
+```
+
+Run self-validation, where each candidate model validates its own candidates:
+
+```bash
+python -m experiments.model_quality.run_self_validation --workers 2
 ```
 
 Score the outputs:
@@ -102,4 +110,5 @@ For each preset, eligible compounds are sorted by `bertz_complexity` and
 - `generations.jsonl`: raw model responses, parsed reactions, usage, latency
 - `candidates.jsonl`: normalized reaction candidates with parser/evaluator status
 - `gold_audits.jsonl`: strong-model audit votes and aggregate confidence
+- `self_validation_runs.jsonl`: candidate model verdict votes for its own outputs
 - `summary.json`: optional scored metrics for notebooks and reports
