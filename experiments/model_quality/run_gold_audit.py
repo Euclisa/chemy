@@ -32,6 +32,17 @@ def _format_candidate(candidate, index):
     )
 
 
+def _postprocess_response(response):
+    """Strip cosmetic formatting that some models add around JSON lines."""
+    lines = []
+    for line in (response or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _parse_gold_response(response, expected_count):
     """Parse JSONL audit response into a list of {index, valid} dicts.
 
@@ -62,15 +73,16 @@ def _parse_gold_response(response, expected_count):
     return [{"index": i, "valid": v} for i, v in indexed]
 
 
-def _audit_batch_job(job, llm_client, model):
+def _audit_batch_job(job, llm_client, model, logger):
     batch = job["batch"]
     body = "\n".join(
         _format_candidate(candidate, idx + 1)
         for idx, candidate in enumerate(batch)
     )
     response = llm_client.fetch_answer_str(f"{GOLD_AUDIT_INSTRUCT}\n\n{body}", model)
-    parsed = _parse_gold_response(response, len(batch))
+    parsed = _parse_gold_response(_postprocess_response(response), len(batch))
     if parsed is None:
+        logger.log(f"Malformed audit output from {model!r}:\n{response}")
         raise ValueError(f"Gold model {model!r} returned malformed audit output")
     # parsed is sorted by index, which matches the original batch order (1-based).
     return {
@@ -130,8 +142,8 @@ def run_gold_audit(
     by_id = {c["candidate_id"]: c for c in candidates}
 
     jobs = []
-    for round_i in range(gold_rounds):
-        for batch in batched(candidates, config["batch_size"]):
+    for batch in batched(candidates, config["batch_size"]):
+        for round_i in range(gold_rounds):
             jobs.append({"round": round_i, "batch": batch})
 
     votes_by_candidate = defaultdict(list)
@@ -161,7 +173,7 @@ def run_gold_audit(
         _audit_batch_job,
         logger,
         max_workers=max_workers,
-        routine_args=[llm_client, model],
+        routine_args=[llm_client, model, logger],
         description="Running gold audit batches",
     ):
         batches_received += 1

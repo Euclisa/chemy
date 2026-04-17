@@ -1,0 +1,94 @@
+{
+  "seed": 1729,
+  "chemy_data_dir": "/home/canary/Documents/Code/chemy/data",
+  "tasks_per_band": 5,
+  "presets": {
+    "wiki_crc_rp": {
+      "eligible_n": 2698,
+      "bands": {
+        "simple": {
+          "pool_n": 900,
+          "task_n": 5
+        },
+        "medium": {
+          "pool_n": 899,
+          "task_n": 5
+        },
+        "hard": {
+          "pool_n": 899,
+          "task_n": 5
+        }
+      }
+    },
+    "simple_inorganic_wiki_rp": {
+      "eligible_n": 1327,
+      "bands": {
+        "simple": {
+          "pool_n": 443,
+          "task_n": 5
+        },
+        "medium": {
+          "pool_n": 442,
+          "task_n": 5
+        },
+        "hard": {
+          "pool_n": 442,
+          "task_n": 5
+        }
+      }
+    },
+    "simple_organic_wiki_rp": {
+      "eligible_n": 2868,
+      "bands": {
+        "simple": {
+          "pool_n": 956,
+          "task_n": 5
+        },
+        "medium": {
+          "pool_n": 956,
+          "task_n": 5
+        },
+        "hard": {
+          "pool_n": 956,
+          "task_n": 5
+        }
+      }
+    },
+    "oxidizers_wiki_rp": {
+      "eligible_n": 71,
+      "bands": {
+        "simple": {
+          "pool_n": 24,
+          "task_n": 5
+        },
+        "medium": {
+          "pool_n": 24,
+          "task_n": 5
+        },
+        "hard": {
+          "pool_n": 23,
+          "task_n": 5
+        }
+      }
+    },
+    "corrosive_wiki_rp": {
+      "eligible_n": 233,
+      "bands": {
+        "simple": {
+          "pool_n": 78,
+          "task_n": 5
+        },
+        "medium": {
+          "pool_n": 78,
+          "task_n": 5
+        },
+        "hard": {
+          "pool_n": 77,
+          "task_n": 5
+        }
+      }
+    }
+  },
+  "task_n": 75,
+  "tasks_path": "/home/canary/Documents/Code/chemy/experiments/model_quality/data/tasks.jsonl"
+}

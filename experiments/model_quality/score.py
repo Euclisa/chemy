@@ -5,6 +5,9 @@ from pathlib import Path
 from .helpers import build_arg_parser, load_config, read_jsonl
 
 
+_PARSE_FAILURE_KEYS = ("null_or_empty", "malformed_json", "invalid_schema")
+
+
 def _mean(values):
     return sum(values) / len(values) if values else 0.0
 
@@ -26,23 +29,51 @@ def _init_model_summary():
         "unique_output_id_n": 0,
         "duplicate_rid_rate": 0.0,
         "gold_audited_n": 0,
-        "gold_precision": 0.0,
-        "gold_accepted_n": 0,
-        "gold_accepted_unique_rid_n": 0,
+        "gold_coverage": 0.0,
+        "mean_gold_confidence": 0.0,
+        "macro_mean_gold_confidence": 0.0,
+        "expected_unique_valid_rid_n": 0.0,
         "input_tokens": 0,
         "completion_tokens": 0,
-        "accepted_unique_rids_per_1k_tokens": 0.0,
+        "expected_unique_valid_rids_per_1k_tokens": 0.0,
     }
 
 
-def build_summary(config, *, data_dir):
+def _gold_metrics(rows, gold_by_candidate):
+    """Soft gold metrics for a list of candidate rows.
+
+    Returns gold_audited_n, mean_gold_confidence, and expected_unique_valid_rid_n
+    (sum of max confidence per unique rid — expected number of valid unique reactions).
+    """
+    confidences = []
+    max_conf_by_rid = {}
+
+    for row in rows:
+        audit = gold_by_candidate.get(row.get("candidate_id"))
+        if audit is None:
+            continue
+        confidence = audit.get("gold_confidence", 0.0)
+        confidences.append(confidence)
+        rid = row.get("rid")
+        if rid is not None:
+            if confidence > max_conf_by_rid.get(rid, -1.0):
+                max_conf_by_rid[rid] = confidence
+
+    return {
+        "gold_audited_n": len(confidences),
+        "mean_gold_confidence": _mean(confidences),
+        "expected_unique_valid_rid_n": sum(max_conf_by_rid.values()),
+    }
+
+
+def build_summary(*, data_dir):
     data_dir = Path(data_dir)
     generations = read_jsonl(data_dir / "generations.jsonl")
     candidates = read_jsonl(data_dir / "candidates.jsonl")
-    gold = read_jsonl(data_dir / "gold_audits.jsonl")
+    gold_raw = read_jsonl(data_dir / "gold_audits.jsonl")
     # gold_audits.jsonl is append-only; last entry per candidate_id wins.
     gold_by_candidate = {}
-    for entry in gold:
+    for entry in gold_raw:
         if entry.get("candidate_id") is not None:
             gold_by_candidate[entry["candidate_id"]] = entry
 
@@ -62,10 +93,8 @@ def build_summary(config, *, data_dir):
         source_stats = reviewed_stats if reviewed_stats.get("accepted") else stats
         accepted = source_stats.get("accepted", 0)
         parse_accepts[model] += accepted
-        # Sum all parse-stat counts so the denominator covers every failure
-        # category, not just the two hardcoded names.
-        parse_denominators[model] += sum(
-            v for v in source_stats.values() if isinstance(v, (int, float))
+        parse_denominators[model] += accepted + sum(
+            source_stats.get(k, 0) for k in _PARSE_FAILURE_KEYS
         )
 
     for candidate in candidates:
@@ -83,8 +112,7 @@ def build_summary(config, *, data_dir):
         output_ids = {row.get("output_id") for row in rows if row.get("output_id")}
 
         by_model[model]["schema_success_rate"] = _rate(
-            parse_accepts[model],
-            parse_denominators[model],
+            parse_accepts[model], parse_denominators[model]
         )
         by_model[model]["parsed_rate"] = _rate(len(parsed), len(rows))
         by_model[model]["target_compound_rate"] = _rate(len(target_present), len(rows))
@@ -94,26 +122,14 @@ def build_summary(config, *, data_dir):
         by_model[model]["unique_output_id_n"] = len(output_ids)
         by_model[model]["duplicate_rid_rate"] = 1 - _rate(len(unique_rids), len(rids))
 
-        audited = []
-        accepted = []
-        for row in rows:
-            audit = gold_by_candidate.get(row["candidate_id"])
-            if audit is None:
-                continue
-            audited.append(audit)
-            if audit.get("gold_confidence", 0.0) >= config["acceptance_threshold"]:
-                accepted.append((row, audit))
-        by_model[model]["gold_audited_n"] = len(audited)
-        by_model[model]["gold_accepted_n"] = len(accepted)
-        by_model[model]["gold_precision"] = _rate(len(accepted), len(audited))
-        by_model[model]["gold_accepted_unique_rid_n"] = len(
-            {row.get("rid") for row, _ in accepted if row.get("rid")}
-        )
-        total_tokens = (
-            by_model[model]["input_tokens"] + by_model[model]["completion_tokens"]
-        )
-        by_model[model]["accepted_unique_rids_per_1k_tokens"] = (
-            by_model[model]["gold_accepted_unique_rid_n"] / total_tokens * 1000
+        gm = _gold_metrics(rows, gold_by_candidate)
+        by_model[model]["gold_audited_n"] = gm["gold_audited_n"]
+        by_model[model]["gold_coverage"] = _rate(gm["gold_audited_n"], len(rows))
+        by_model[model]["mean_gold_confidence"] = gm["mean_gold_confidence"]
+        by_model[model]["expected_unique_valid_rid_n"] = gm["expected_unique_valid_rid_n"]
+        total_tokens = by_model[model]["input_tokens"] + by_model[model]["completion_tokens"]
+        by_model[model]["expected_unique_valid_rids_per_1k_tokens"] = (
+            gm["expected_unique_valid_rid_n"] / total_tokens * 1000
             if total_tokens else 0.0
         )
 
@@ -126,6 +142,7 @@ def build_summary(config, *, data_dir):
     for band_key, model_rows in by_band.items():
         bands[band_key] = {}
         for model, rows in model_rows.items():
+            gm = _gold_metrics(rows, gold_by_candidate)
             bands[band_key][model] = {
                 "candidate_n": len(rows),
                 "parsed_rate": _mean([1.0 if row.get("parsed") else 0.0 for row in rows]),
@@ -135,7 +152,17 @@ def build_summary(config, *, data_dir):
                 "balance_success_rate": _mean(
                     [1.0 if row.get("balance_success") else 0.0 for row in rows]
                 ),
+                **gm,
+                "gold_coverage": _rate(gm["gold_audited_n"], len(rows)),
             }
+
+    for model in by_model:
+        audited_band_confidences = [
+            bands[band_key][model]["mean_gold_confidence"]
+            for band_key in bands
+            if model in bands[band_key] and bands[band_key][model]["gold_audited_n"] > 0
+        ]
+        by_model[model]["macro_mean_gold_confidence"] = _mean(audited_band_confidences)
 
     return {
         "models": dict(by_model),
@@ -143,7 +170,7 @@ def build_summary(config, *, data_dir):
         "inputs": {
             "generations": len(generations),
             "candidates": len(candidates),
-            "gold_audits": len(gold),
+            "gold_audits": len(gold_raw),
         },
     }
 
@@ -156,8 +183,7 @@ def main(argv=None):
         help="Optional JSON path for summary output.",
     )
     args = parser.parse_args(argv)
-    config = load_config(args.config)
-    summary = build_summary(config, data_dir=args.data_dir)
+    summary = build_summary(data_dir=args.data_dir)
     payload = json.dumps(summary, indent=2)
     if args.out:
         out_path = Path(args.out)

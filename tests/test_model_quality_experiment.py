@@ -231,14 +231,13 @@ def test_score_summary_handles_failed_duplicate_and_gold_rejected_outputs(tmp_pa
         data_dir / "gold_audits.jsonl",
     )
 
-    summary = build_summary(
-        {"acceptance_threshold": 0.4},
-        data_dir=data_dir,
-    )
+    summary = build_summary(data_dir=data_dir)
 
     model = summary["models"]["model-a"]
     assert model["schema_success_rate"] == 2 / 3
     assert model["parsed_rate"] == 0.5
     assert model["duplicate_rid_rate"] == 0.5
-    assert model["gold_precision"] == 0.5
-    assert model["gold_accepted_unique_rid_n"] == 1
+    assert model["gold_coverage"] == 1.0
+    assert model["mean_gold_confidence"] == 0.5
+    assert model["expected_unique_valid_rid_n"] == 1.0
+    assert model["macro_mean_gold_confidence"] == 0.5

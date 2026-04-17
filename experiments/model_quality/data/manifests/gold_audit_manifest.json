@@ -1,0 +1,10 @@
+{
+  "model": "google/gemini-2.5-pro",
+  "rounds": 3,
+  "max_workers": 20,
+  "candidate_count": 1851,
+  "pending_count": 1191,
+  "completed_before": 660,
+  "audited": 1191,
+  "batch_failures": 0
+}

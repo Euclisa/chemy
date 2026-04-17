@@ -1,0 +1,751 @@
+{
+  "models": {
+    "openai/gpt-oss-120b": {
+      "generation_runs": 75,
+      "candidate_n": 555,
+      "schema_success_rate": 0.9519725557461407,
+      "parsed_rate": 0.6504504504504505,
+      "target_compound_rate": 0.6468468468468469,
+      "target_position_rate": 0.6468468468468469,
+      "balance_success_rate": 0.44324324324324327,
+      "unique_rid_n": 360,
+      "unique_output_id_n": 555,
+      "duplicate_rid_rate": 0.0027700831024930483,
+      "gold_audited_n": 555,
+      "gold_coverage": 1.0,
+      "mean_gold_confidence": 0.7537537537537538,
+      "macro_mean_gold_confidence": 0.7544427323187386,
+      "expected_unique_valid_rid_n": 279.0,
+      "input_tokens": 493236,
+      "completion_tokens": 3903453,
+      "expected_unique_valid_rids_per_1k_tokens": 0.0634568421828335
+    },
+    "qwen/qwen3-235b-a22b": {
+      "generation_runs": 75,
+      "candidate_n": 402,
+      "schema_success_rate": 0.8796498905908097,
+      "parsed_rate": 0.736318407960199,
+      "target_compound_rate": 0.736318407960199,
+      "target_position_rate": 0.736318407960199,
+      "balance_success_rate": 0.5895522388059702,
+      "unique_rid_n": 289,
+      "unique_output_id_n": 402,
+      "duplicate_rid_rate": 0.023648648648648685,
+      "gold_audited_n": 402,
+      "gold_coverage": 1.0,
+      "mean_gold_confidence": 0.8407960199004975,
+      "macro_mean_gold_confidence": 0.8266138962614935,
+      "expected_unique_valid_rid_n": 246.66666666666666,
+      "input_tokens": 643261,
+      "completion_tokens": 8963857,
+      "expected_unique_valid_rids_per_1k_tokens": 0.025675407199814416
+    },
+    "x-ai/grok-4-fast": {
+      "generation_runs": 75,
+      "candidate_n": 323,
+      "schema_success_rate": 0.8947368421052632,
+      "parsed_rate": 0.7616099071207431,
+      "target_compound_rate": 0.7585139318885449,
+      "target_position_rate": 0.7585139318885449,
+      "balance_success_rate": 0.5789473684210527,
+      "unique_rid_n": 242,
+      "unique_output_id_n": 323,
+      "duplicate_rid_rate": 0.016260162601625994,
+      "gold_audited_n": 323,
+      "gold_coverage": 1.0,
+      "mean_gold_confidence": 0.891640866873065,
+      "macro_mean_gold_confidence": 0.8825722950592753,
+      "expected_unique_valid_rid_n": 215.33333333333334,
+      "input_tokens": 507619,
+      "completion_tokens": 3527799,
+      "expected_unique_valid_rids_per_1k_tokens": 0.053360849689755394
+    },
+    "deepseek/deepseek-v3.2": {
+      "generation_runs": 75,
+      "candidate_n": 563,
+      "schema_success_rate": 0.7659863945578231,
+      "parsed_rate": 0.6660746003552398,
+      "target_compound_rate": 0.6483126110124334,
+      "target_position_rate": 0.6483126110124334,
+      "balance_success_rate": 0.49023090586145646,
+      "unique_rid_n": 372,
+      "unique_output_id_n": 563,
+      "duplicate_rid_rate": 0.008000000000000007,
+      "gold_audited_n": 563,
+      "gold_coverage": 1.0,
+      "mean_gold_confidence": 0.8235642391947898,
+      "macro_mean_gold_confidence": 0.8376682247279874,
+      "expected_unique_valid_rid_n": 312.3333333333333,
+      "input_tokens": 515969,
+      "completion_tokens": 7490900,
+      "expected_unique_valid_rids_per_1k_tokens": 0.03900817327388938
+    },
+    "minimax/minimax-m2.7": {
+      "generation_runs": 34,
+      "candidate_n": 8,
+      "schema_success_rate": 0.13333333333333333,
+      "parsed_rate": 1.0,
+      "target_compound_rate": 1.0,
+      "target_position_rate": 1.0,
+      "balance_success_rate": 0.5,
+      "unique_rid_n": 8,
+      "unique_output_id_n": 8,
+      "duplicate_rid_rate": 0.0,
+      "gold_audited_n": 8,
+      "gold_coverage": 1.0,
+      "mean_gold_confidence": 1.0,
+      "macro_mean_gold_confidence": 1.0,
+      "expected_unique_valid_rid_n": 8.0,
+      "input_tokens": 176832,
+      "completion_tokens": 4538803,
+      "expected_unique_valid_rids_per_1k_tokens": 0.001696484142644628
+    }
+  },
+  "bands": {
+    "wiki_crc_rp:hard": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 30,
+        "parsed_rate": 0.3,
+        "target_position_rate": 0.3,
+        "balance_success_rate": 0.2,
+        "gold_audited_n": 30,
+        "mean_gold_confidence": 0.7,
+        "expected_unique_valid_rid_n": 7.0,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 21,
+        "parsed_rate": 0.38095238095238093,
+        "target_position_rate": 0.38095238095238093,
+        "balance_success_rate": 0.23809523809523808,
+        "gold_audited_n": 21,
+        "mean_gold_confidence": 0.8095238095238095,
+        "expected_unique_valid_rid_n": 5.0,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 16,
+        "parsed_rate": 0.5625,
+        "target_position_rate": 0.5625,
+        "balance_success_rate": 0.375,
+        "gold_audited_n": 16,
+        "mean_gold_confidence": 0.6041666666666666,
+        "expected_unique_valid_rid_n": 4.666666666666667,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 35,
+        "parsed_rate": 0.42857142857142855,
+        "target_position_rate": 0.42857142857142855,
+        "balance_success_rate": 0.2857142857142857,
+        "gold_audited_n": 35,
+        "mean_gold_confidence": 0.8857142857142857,
+        "expected_unique_valid_rid_n": 13.0,
+        "gold_coverage": 1.0
+      }
+    },
+    "simple_inorganic_wiki_rp:simple": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 34,
+        "parsed_rate": 0.7647058823529411,
+        "target_position_rate": 0.7647058823529411,
+        "balance_success_rate": 0.7058823529411765,
+        "gold_audited_n": 34,
+        "mean_gold_confidence": 0.7254901960784315,
+        "expected_unique_valid_rid_n": 19.0,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 35,
+        "parsed_rate": 0.8,
+        "target_position_rate": 0.8,
+        "balance_success_rate": 0.7714285714285715,
+        "gold_audited_n": 35,
+        "mean_gold_confidence": 0.9047619047619048,
+        "expected_unique_valid_rid_n": 26.666666666666668,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 19,
+        "parsed_rate": 0.8421052631578947,
+        "target_position_rate": 0.8421052631578947,
+        "balance_success_rate": 0.8421052631578947,
+        "gold_audited_n": 19,
+        "mean_gold_confidence": 1.0,
+        "expected_unique_valid_rid_n": 16.0,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 21,
+        "parsed_rate": 0.9523809523809523,
+        "target_position_rate": 0.9523809523809523,
+        "balance_success_rate": 0.9523809523809523,
+        "gold_audited_n": 21,
+        "mean_gold_confidence": 1.0,
+        "expected_unique_valid_rid_n": 20.0,
+        "gold_coverage": 1.0
+      }
+    },
+    "wiki_crc_rp:simple": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 44,
+        "parsed_rate": 0.7954545454545454,
+        "target_position_rate": 0.7954545454545454,
+        "balance_success_rate": 0.4772727272727273,
+        "gold_audited_n": 44,
+        "mean_gold_confidence": 0.9166666666666667,
+        "expected_unique_valid_rid_n": 33.666666666666664,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 30,
+        "parsed_rate": 0.7333333333333333,
+        "target_position_rate": 0.7333333333333333,
+        "balance_success_rate": 0.7,
+        "gold_audited_n": 30,
+        "mean_gold_confidence": 0.9111111111111111,
+        "expected_unique_valid_rid_n": 21.0,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 29,
+        "parsed_rate": 0.7931034482758621,
+        "target_position_rate": 0.7931034482758621,
+        "balance_success_rate": 0.7241379310344828,
+        "gold_audited_n": 29,
+        "mean_gold_confidence": 0.9425287356321839,
+        "expected_unique_valid_rid_n": 22.333333333333332,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 37,
+        "parsed_rate": 0.8648648648648649,
+        "target_position_rate": 0.8648648648648649,
+        "balance_success_rate": 0.6756756756756757,
+        "gold_audited_n": 37,
+        "mean_gold_confidence": 0.954954954954955,
+        "expected_unique_valid_rid_n": 30.333333333333332,
+        "gold_coverage": 1.0
+      }
+    },
+    "simple_inorganic_wiki_rp:medium": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 25,
+        "parsed_rate": 0.6,
+        "target_position_rate": 0.6,
+        "balance_success_rate": 0.52,
+        "gold_audited_n": 25,
+        "mean_gold_confidence": 0.9466666666666668,
+        "expected_unique_valid_rid_n": 15.0,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 22,
+        "parsed_rate": 0.7727272727272727,
+        "target_position_rate": 0.7727272727272727,
+        "balance_success_rate": 0.6818181818181818,
+        "gold_audited_n": 22,
+        "mean_gold_confidence": 0.8636363636363636,
+        "expected_unique_valid_rid_n": 14.0,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 19,
+        "parsed_rate": 0.8947368421052632,
+        "target_position_rate": 0.8947368421052632,
+        "balance_success_rate": 0.8947368421052632,
+        "gold_audited_n": 19,
+        "mean_gold_confidence": 0.8947368421052632,
+        "expected_unique_valid_rid_n": 16.0,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 28,
+        "parsed_rate": 0.6785714285714286,
+        "target_position_rate": 0.6785714285714286,
+        "balance_success_rate": 0.5714285714285714,
+        "gold_audited_n": 28,
+        "mean_gold_confidence": 0.8452380952380952,
+        "expected_unique_valid_rid_n": 15.666666666666666,
+        "gold_coverage": 1.0
+      }
+    },
+    "wiki_crc_rp:medium": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 38,
+        "parsed_rate": 0.5,
+        "target_position_rate": 0.5,
+        "balance_success_rate": 0.05263157894736842,
+        "gold_audited_n": 38,
+        "mean_gold_confidence": 0.631578947368421,
+        "expected_unique_valid_rid_n": 11.666666666666666,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 23,
+        "parsed_rate": 0.391304347826087,
+        "target_position_rate": 0.391304347826087,
+        "balance_success_rate": 0.17391304347826086,
+        "gold_audited_n": 23,
+        "mean_gold_confidence": 0.6231884057971014,
+        "expected_unique_valid_rid_n": 5.333333333333333,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 16,
+        "parsed_rate": 0.5625,
+        "target_position_rate": 0.5625,
+        "balance_success_rate": 0.3125,
+        "gold_audited_n": 16,
+        "mean_gold_confidence": 0.9166666666666666,
+        "expected_unique_valid_rid_n": 7.666666666666667,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 39,
+        "parsed_rate": 0.28205128205128205,
+        "target_position_rate": 0.28205128205128205,
+        "balance_success_rate": 0.1794871794871795,
+        "gold_audited_n": 39,
+        "mean_gold_confidence": 0.7606837606837608,
+        "expected_unique_valid_rid_n": 6.333333333333333,
+        "gold_coverage": 1.0
+      }
+    },
+    "simple_organic_wiki_rp:simple": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 46,
+        "parsed_rate": 0.717391304347826,
+        "target_position_rate": 0.717391304347826,
+        "balance_success_rate": 0.6086956521739131,
+        "gold_audited_n": 46,
+        "mean_gold_confidence": 0.782608695652174,
+        "expected_unique_valid_rid_n": 28.666666666666668,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 35,
+        "parsed_rate": 0.6857142857142857,
+        "target_position_rate": 0.6857142857142857,
+        "balance_success_rate": 0.45714285714285713,
+        "gold_audited_n": 35,
+        "mean_gold_confidence": 0.8380952380952381,
+        "expected_unique_valid_rid_n": 20.333333333333332,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 33,
+        "parsed_rate": 0.7575757575757576,
+        "target_position_rate": 0.7575757575757576,
+        "balance_success_rate": 0.45454545454545453,
+        "gold_audited_n": 33,
+        "mean_gold_confidence": 0.9696969696969697,
+        "expected_unique_valid_rid_n": 24.0,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 66,
+        "parsed_rate": 0.6666666666666666,
+        "target_position_rate": 0.6666666666666666,
+        "balance_success_rate": 0.5151515151515151,
+        "gold_audited_n": 66,
+        "mean_gold_confidence": 0.7777777777777778,
+        "expected_unique_valid_rid_n": 34.0,
+        "gold_coverage": 1.0
+      }
+    },
+    "simple_inorganic_wiki_rp:hard": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 29,
+        "parsed_rate": 0.5862068965517241,
+        "target_position_rate": 0.5862068965517241,
+        "balance_success_rate": 0.4482758620689655,
+        "gold_audited_n": 29,
+        "mean_gold_confidence": 0.8045977011494252,
+        "expected_unique_valid_rid_n": 13.333333333333334,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 15,
+        "parsed_rate": 0.7333333333333333,
+        "target_position_rate": 0.7333333333333333,
+        "balance_success_rate": 0.4,
+        "gold_audited_n": 15,
+        "mean_gold_confidence": 0.8,
+        "expected_unique_valid_rid_n": 8.0,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 15,
+        "parsed_rate": 0.6666666666666666,
+        "target_position_rate": 0.6,
+        "balance_success_rate": 0.5333333333333333,
+        "gold_audited_n": 15,
+        "mean_gold_confidence": 0.8222222222222223,
+        "expected_unique_valid_rid_n": 8.333333333333334,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 35,
+        "parsed_rate": 0.7714285714285715,
+        "target_position_rate": 0.7714285714285715,
+        "balance_success_rate": 0.5714285714285714,
+        "gold_audited_n": 35,
+        "mean_gold_confidence": 0.8095238095238095,
+        "expected_unique_valid_rid_n": 22.333333333333332,
+        "gold_coverage": 1.0
+      }
+    },
+    "simple_organic_wiki_rp:medium": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 38,
+        "parsed_rate": 0.2894736842105263,
+        "target_position_rate": 0.2894736842105263,
+        "balance_success_rate": 0.05263157894736842,
+        "gold_audited_n": 38,
+        "mean_gold_confidence": 0.7631578947368421,
+        "expected_unique_valid_rid_n": 8.333333333333334,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 13,
+        "parsed_rate": 0.5384615384615384,
+        "target_position_rate": 0.5384615384615384,
+        "balance_success_rate": 0.15384615384615385,
+        "gold_audited_n": 13,
+        "mean_gold_confidence": 0.7435897435897435,
+        "expected_unique_valid_rid_n": 5.333333333333333,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 12,
+        "parsed_rate": 0.5,
+        "target_position_rate": 0.5,
+        "balance_success_rate": 0.08333333333333333,
+        "gold_audited_n": 12,
+        "mean_gold_confidence": 1.0,
+        "expected_unique_valid_rid_n": 6.0,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 19,
+        "parsed_rate": 0.42105263157894735,
+        "target_position_rate": 0.42105263157894735,
+        "balance_success_rate": 0.2631578947368421,
+        "gold_audited_n": 19,
+        "mean_gold_confidence": 0.9298245614035089,
+        "expected_unique_valid_rid_n": 8.0,
+        "gold_coverage": 1.0
+      }
+    },
+    "simple_organic_wiki_rp:hard": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 33,
+        "parsed_rate": 0.30303030303030304,
+        "target_position_rate": 0.30303030303030304,
+        "balance_success_rate": 0.12121212121212122,
+        "gold_audited_n": 33,
+        "mean_gold_confidence": 0.7474747474747475,
+        "expected_unique_valid_rid_n": 8.333333333333334,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 14,
+        "parsed_rate": 0.5714285714285714,
+        "target_position_rate": 0.5714285714285714,
+        "balance_success_rate": 0.42857142857142855,
+        "gold_audited_n": 14,
+        "mean_gold_confidence": 0.7142857142857143,
+        "expected_unique_valid_rid_n": 7.0,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 16,
+        "parsed_rate": 0.5625,
+        "target_position_rate": 0.5625,
+        "balance_success_rate": 0.25,
+        "gold_audited_n": 16,
+        "mean_gold_confidence": 0.7916666666666666,
+        "expected_unique_valid_rid_n": 6.666666666666667,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 20,
+        "parsed_rate": 0.4,
+        "target_position_rate": 0.4,
+        "balance_success_rate": 0.2,
+        "gold_audited_n": 20,
+        "mean_gold_confidence": 0.7666666666666667,
+        "expected_unique_valid_rid_n": 7.0,
+        "gold_coverage": 1.0
+      }
+    },
+    "oxidizers_wiki_rp:simple": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 37,
+        "parsed_rate": 0.6756756756756757,
+        "target_position_rate": 0.6756756756756757,
+        "balance_success_rate": 0.4864864864864865,
+        "gold_audited_n": 37,
+        "mean_gold_confidence": 0.7207207207207208,
+        "expected_unique_valid_rid_n": 16.666666666666668,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 35,
+        "parsed_rate": 0.9428571428571428,
+        "target_position_rate": 0.9428571428571428,
+        "balance_success_rate": 0.8,
+        "gold_audited_n": 35,
+        "mean_gold_confidence": 0.9047619047619048,
+        "expected_unique_valid_rid_n": 29.333333333333332,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 22,
+        "parsed_rate": 1.0,
+        "target_position_rate": 1.0,
+        "balance_success_rate": 0.8181818181818182,
+        "gold_audited_n": 22,
+        "mean_gold_confidence": 0.8787878787878788,
+        "expected_unique_valid_rid_n": 18.333333333333332,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 43,
+        "parsed_rate": 0.9767441860465116,
+        "target_position_rate": 0.9534883720930233,
+        "balance_success_rate": 0.6976744186046512,
+        "gold_audited_n": 43,
+        "mean_gold_confidence": 0.8217054263565892,
+        "expected_unique_valid_rid_n": 34.333333333333336,
+        "gold_coverage": 1.0
+      },
+      "minimax/minimax-m2.7": {
+        "candidate_n": 8,
+        "parsed_rate": 1.0,
+        "target_position_rate": 1.0,
+        "balance_success_rate": 0.5,
+        "gold_audited_n": 8,
+        "mean_gold_confidence": 1.0,
+        "expected_unique_valid_rid_n": 8.0,
+        "gold_coverage": 1.0
+      }
+    },
+    "corrosive_wiki_rp:simple": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 51,
+        "parsed_rate": 0.7450980392156863,
+        "target_position_rate": 0.7450980392156863,
+        "balance_success_rate": 0.43137254901960786,
+        "gold_audited_n": 51,
+        "mean_gold_confidence": 0.7843137254901961,
+        "expected_unique_valid_rid_n": 31.333333333333332,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 37,
+        "parsed_rate": 0.8648648648648649,
+        "target_position_rate": 0.8648648648648649,
+        "balance_success_rate": 0.6756756756756757,
+        "gold_audited_n": 37,
+        "mean_gold_confidence": 0.8828828828828829,
+        "expected_unique_valid_rid_n": 28.666666666666668,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 30,
+        "parsed_rate": 0.8,
+        "target_position_rate": 0.8,
+        "balance_success_rate": 0.6333333333333333,
+        "gold_audited_n": 30,
+        "mean_gold_confidence": 0.9111111111111111,
+        "expected_unique_valid_rid_n": 21.666666666666668,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 35,
+        "parsed_rate": 0.8571428571428571,
+        "target_position_rate": 0.8571428571428571,
+        "balance_success_rate": 0.8285714285714286,
+        "gold_audited_n": 35,
+        "mean_gold_confidence": 0.9619047619047618,
+        "expected_unique_valid_rid_n": 28.666666666666668,
+        "gold_coverage": 1.0
+      }
+    },
+    "oxidizers_wiki_rp:medium": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 33,
+        "parsed_rate": 0.8787878787878788,
+        "target_position_rate": 0.8787878787878788,
+        "balance_success_rate": 0.7272727272727273,
+        "gold_audited_n": 33,
+        "mean_gold_confidence": 0.6262626262626263,
+        "expected_unique_valid_rid_n": 17.666666666666668,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 26,
+        "parsed_rate": 0.8076923076923077,
+        "target_position_rate": 0.8076923076923077,
+        "balance_success_rate": 0.7692307692307693,
+        "gold_audited_n": 26,
+        "mean_gold_confidence": 0.8846153846153846,
+        "expected_unique_valid_rid_n": 19.0,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 20,
+        "parsed_rate": 0.95,
+        "target_position_rate": 0.95,
+        "balance_success_rate": 0.8,
+        "gold_audited_n": 20,
+        "mean_gold_confidence": 0.8,
+        "expected_unique_valid_rid_n": 15.0,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 44,
+        "parsed_rate": 0.6818181818181818,
+        "target_position_rate": 0.6818181818181818,
+        "balance_success_rate": 0.5227272727272727,
+        "gold_audited_n": 44,
+        "mean_gold_confidence": 0.6666666666666666,
+        "expected_unique_valid_rid_n": 20.666666666666668,
+        "gold_coverage": 1.0
+      }
+    },
+    "oxidizers_wiki_rp:hard": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 36,
+        "parsed_rate": 0.8333333333333334,
+        "target_position_rate": 0.8333333333333334,
+        "balance_success_rate": 0.5277777777777778,
+        "gold_audited_n": 36,
+        "mean_gold_confidence": 0.7037037037037037,
+        "expected_unique_valid_rid_n": 21.333333333333332,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 38,
+        "parsed_rate": 0.8421052631578947,
+        "target_position_rate": 0.8421052631578947,
+        "balance_success_rate": 0.6842105263157895,
+        "gold_audited_n": 38,
+        "mean_gold_confidence": 0.8508771929824562,
+        "expected_unique_valid_rid_n": 27.333333333333332,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 24,
+        "parsed_rate": 0.75,
+        "target_position_rate": 0.75,
+        "balance_success_rate": 0.625,
+        "gold_audited_n": 24,
+        "mean_gold_confidence": 0.8194444444444445,
+        "expected_unique_valid_rid_n": 14.0,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 46,
+        "parsed_rate": 0.6956521739130435,
+        "target_position_rate": 0.6956521739130435,
+        "balance_success_rate": 0.43478260869565216,
+        "gold_audited_n": 46,
+        "mean_gold_confidence": 0.753623188405797,
+        "expected_unique_valid_rid_n": 25.333333333333332,
+        "gold_coverage": 1.0
+      }
+    },
+    "corrosive_wiki_rp:medium": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 51,
+        "parsed_rate": 0.8235294117647058,
+        "target_position_rate": 0.8235294117647058,
+        "balance_success_rate": 0.7254901960784313,
+        "gold_audited_n": 51,
+        "mean_gold_confidence": 0.7189542483660131,
+        "expected_unique_valid_rid_n": 31.666666666666668,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 33,
+        "parsed_rate": 0.8787878787878788,
+        "target_position_rate": 0.8787878787878788,
+        "balance_success_rate": 0.7272727272727273,
+        "gold_audited_n": 33,
+        "mean_gold_confidence": 0.7878787878787878,
+        "expected_unique_valid_rid_n": 22.0,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 29,
+        "parsed_rate": 0.896551724137931,
+        "target_position_rate": 0.896551724137931,
+        "balance_success_rate": 0.7586206896551724,
+        "gold_audited_n": 29,
+        "mean_gold_confidence": 0.9310344827586207,
+        "expected_unique_valid_rid_n": 25.0,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 43,
+        "parsed_rate": 0.5813953488372093,
+        "target_position_rate": 0.5813953488372093,
+        "balance_success_rate": 0.46511627906976744,
+        "gold_audited_n": 43,
+        "mean_gold_confidence": 0.8294573643410852,
+        "expected_unique_valid_rid_n": 22.333333333333332,
+        "gold_coverage": 1.0
+      }
+    },
+    "corrosive_wiki_rp:hard": {
+      "openai/gpt-oss-120b": {
+        "candidate_n": 30,
+        "parsed_rate": 0.7333333333333333,
+        "target_position_rate": 0.6666666666666666,
+        "balance_success_rate": 0.43333333333333335,
+        "gold_audited_n": 30,
+        "mean_gold_confidence": 0.7444444444444444,
+        "expected_unique_valid_rid_n": 15.333333333333334,
+        "gold_coverage": 1.0
+      },
+      "qwen/qwen3-235b-a22b": {
+        "candidate_n": 25,
+        "parsed_rate": 0.6,
+        "target_position_rate": 0.6,
+        "balance_success_rate": 0.48,
+        "gold_audited_n": 25,
+        "mean_gold_confidence": 0.88,
+        "expected_unique_valid_rid_n": 12.666666666666666,
+        "gold_coverage": 1.0
+      },
+      "x-ai/grok-4-fast": {
+        "candidate_n": 23,
+        "parsed_rate": 0.5652173913043478,
+        "target_position_rate": 0.5652173913043478,
+        "balance_success_rate": 0.17391304347826086,
+        "gold_audited_n": 23,
+        "mean_gold_confidence": 0.9565217391304348,
+        "expected_unique_valid_rid_n": 12.0,
+        "gold_coverage": 1.0
+      },
+      "deepseek/deepseek-v3.2": {
+        "candidate_n": 52,
+        "parsed_rate": 0.6153846153846154,
+        "target_position_rate": 0.4423076923076923,
+        "balance_success_rate": 0.25,
+        "gold_audited_n": 52,
+        "mean_gold_confidence": 0.8012820512820512,
+        "expected_unique_valid_rid_n": 24.333333333333332,
+        "gold_coverage": 1.0
+      }
+    }
+  },
+  "inputs": {
+    "generations": 334,
+    "candidates": 1851,
+    "gold_audits": 1851
+  }
+}
