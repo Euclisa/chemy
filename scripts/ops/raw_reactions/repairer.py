@@ -77,12 +77,10 @@ class RawReactionsRepairer:
         }
 
         for entry in self.store.load_jsonl(verdict_fn):
-            rid = entry.get('rid')
+            rid, _, reason = self._get_reaction_id(entry.get('reaction'))
             if rid is None:
-                rid, _, reason = self._get_reaction_id(entry.get('reaction'))
-                if rid is None:
-                    skip_stats[reason] += 1
-                    continue
+                skip_stats[reason] += 1
+                continue
             if rid in repaired_rids:
                 skip_stats['already_repaired'] += 1
                 continue

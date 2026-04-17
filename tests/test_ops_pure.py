@@ -518,12 +518,15 @@ def test_raw_reaction_validator_results_do_not_persist_valid_flag(ops_context, m
 
     assert results[0]["confidence"] == 1.0
     assert "valid" not in results[0]
+    assert "rid" not in results[0]
 
 
-def test_checked_in_raw_reaction_verdicts_do_not_persist_valid_flag():
+def test_checked_in_raw_reaction_verdicts_do_not_persist_derived_fields():
     for path in Path("data/raw_reactions/verdict").glob("*.jsonl"):
         for line in path.read_text().splitlines():
-            assert '"valid"' not in line
+            entry = json.loads(line)
+            assert "valid" not in entry
+            assert "rid" not in entry
 
 
 def test_global_repair_candidates_group_by_rid_and_skip_accepted_or_repaired(ops_context):

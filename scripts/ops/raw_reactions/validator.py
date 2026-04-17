@@ -13,6 +13,15 @@ def is_confident(entry, key='confidence', acceptance_threshold=ACCEPT_THR):
     return confidence is not None and confidence >= acceptance_threshold
 
 
+def get_reaction_id(parser, reaction_obj):
+    if not is_valid_reaction_obj(reaction_obj):
+        return None, 'invalid_schema'
+    parsed, _ = parser.parse_structured_reaction(reaction_obj)
+    if not parsed:
+        return None, 'unmapped'
+    return parsed['rid'], None
+
+
 class RawReactionsValidator:
     def __init__(self, llm_client, store, logger, layout, parser, models):
         self.llm_client = llm_client
@@ -43,12 +52,7 @@ class RawReactionsValidator:
         return None
 
     def _get_reaction_id(self, reaction_obj):
-        if not is_valid_reaction_obj(reaction_obj):
-            return None, 'invalid_schema'
-        parsed, _ = self.parser.parse_structured_reaction(reaction_obj)
-        if not parsed:
-            return None, 'unmapped'
-        return parsed['rid'], None
+        return get_reaction_id(self.parser, reaction_obj)
 
     def _build_result(self, reaction_entry, positives, rounds_done, model):
         confidence = positives / rounds_done if rounds_done > 0 else 0.0
@@ -57,9 +61,11 @@ class RawReactionsValidator:
         result['rounds'] = rounds_done
         result['positives'] = positives
         result['source'] = model
-        rid, _ = self._get_reaction_id(reaction_entry.get('reaction'))
-        if rid is not None:
-            result['rid'] = rid
+        return result
+
+    def _as_verdict_result(self, result):
+        result = result.copy()
+        result.pop('rid', None)
         return result
 
     def validate_batch(
@@ -94,7 +100,7 @@ class RawReactionsValidator:
                 f"({result['positives']}/{result['rounds']}); "
                 f"CTT: {self.llm_client.completion_tokens_total}"
             )
-        return results
+        return [self._as_verdict_result(result) for result in results]
 
     def _log_skip_stats(self, preset_name, stats):
         if any(stats.values()):
@@ -116,17 +122,13 @@ class RawReactionsValidator:
 
         processed_rids = set()
         for entry in self.store.load_jsonl(verdict_fn):
-            rid = entry.get('rid')
+            rid, reason = self._get_reaction_id(entry.get('reaction'))
             if rid is not None:
                 processed_rids.add(rid)
-            else:
-                rid, reason = self._get_reaction_id(entry.get('reaction'))
-                if rid is not None:
-                    processed_rids.add(rid)
-                elif reason == 'invalid_schema':
-                    skip_stats['invalid_existing_verdict_schema'] += 1
-                elif reason == 'unmapped':
-                    skip_stats['unmapped_existing_verdict'] += 1
+            elif reason == 'invalid_schema':
+                skip_stats['invalid_existing_verdict_schema'] += 1
+            elif reason == 'unmapped':
+                skip_stats['unmapped_existing_verdict'] += 1
 
         reactions = []
         for raw_fn in self.layout.raw_all(preset.name):

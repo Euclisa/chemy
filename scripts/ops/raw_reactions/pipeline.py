@@ -5,7 +5,7 @@ from .presets import get_preset
 from .repairer import RawReactionsRepairer
 from .schema import is_valid_reaction_obj
 from .services import RawReactionTaskBuilder
-from .validator import ACCEPT_THR, RawReactionsValidator, is_confident
+from .validator import ACCEPT_THR, RawReactionsValidator, get_reaction_id, is_confident
 
 
 class RawReactionsPipeline:
@@ -64,19 +64,17 @@ class RawReactionsPipeline:
         self.fetch(preset_name, max_workers, run=run)
         self.validate(preset_name, max_workers, acceptance_threshold=acceptance_threshold)
 
+    def _verdict_rid(self, entry):
+        rid, _ = get_reaction_id(self._parser, entry.get('reaction'))
+        return rid
+
     def parse(self, acceptance_threshold=ACCEPT_THR):
         all_entries = []
         selected_rids = set()
         accepted_original_rids = set()
 
         for entry in self._store.load_jsonl(self.layout.verdict()):
-            rid = entry.get('rid')
-            if rid is None:
-                reaction_obj = entry.get('reaction')
-                if is_valid_reaction_obj(reaction_obj):
-                    parsed_reaction, _ = self._parser.parse_structured_reaction(reaction_obj)
-                    if parsed_reaction:
-                        rid = parsed_reaction['rid']
+            rid = self._verdict_rid(entry)
             if rid is not None:
                 selected_rids.add(rid)
                 if is_confident(entry, acceptance_threshold=acceptance_threshold):
