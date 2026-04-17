@@ -18,8 +18,9 @@ def test_chem_names_classifies_and_cleans_synonyms():
 def test_clean_and_normalize_chem_name(core_context):
     compounds = core_context.compounds
 
-    assert compounds.clean_chem_name("  12 Sodium\u2011chloride.  ") == "Sodium-chloride"
-    assert compounds.normalize_chem_name(" Glacial aluminum solution ") == "aluminium"
+    assert compounds.clean_chem_name("  Sodium\u2011chloride  ") == "Sodium-chloride"
+    assert compounds.normalize_chem_name("Aluminum chloride") == "aluminiumchloride"
+    assert compounds.normalize_chem_name("  Glacial aluminum solution  ") == "glacialaluminiumsolution"
     assert compounds.normalize_chem_name(compounds.unknown_name_ph) == compounds.unknown_name_ph
 
 

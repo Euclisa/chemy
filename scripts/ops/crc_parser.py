@@ -424,7 +424,7 @@ class CRCParser:
         parsed_entries = []
         processed_cids = set()
         for entry in entries:
-            name = self.compounds.normalize_chem_name(entry['name'], is_clean=True)
+            name = self.compounds.normalize_chem_name(entry['name'])
             cas = entry['cas']
             cid = self.compounds.cas_cid_map[cas] if cas in self.compounds.cas_cid_map else self.compounds.unique_name_cid_map.get(name)
             if cid is None or cid in processed_cids:
@@ -436,7 +436,7 @@ class CRCParser:
                 continue
 
             for solvent, sol_cat in solubility_raw.items():
-                norm_solvent = self.compounds.normalize_chem_name(solvent, is_clean=True)
+                norm_solvent = self.compounds.normalize_chem_name(solvent)
                 if norm_solvent not in self.compounds.unique_name_cid_map:
                     continue
                 solvent_cid = self.compounds.unique_name_cid_map[norm_solvent]
@@ -480,7 +480,7 @@ class CRCParser:
         parsed_entries = []
         processed_cids = set()
         for entry in entries:
-            name = self.compounds.normalize_chem_name(entry['name'], is_clean=True)
+            name = self.compounds.normalize_chem_name(entry['name'])
             cid = self.compounds.unique_name_cid_map.get(name)
             if cid is None or cid in processed_cids:
                 continue
@@ -513,6 +513,6 @@ class CRCParser:
 
         with open(self.crc_unmapped_names_fn, 'w') as f:
             for name in names:
-                norm_name = self.compounds.normalize_chem_name(name, is_clean=True)
+                norm_name = self.compounds.normalize_chem_name(name)
                 if norm_name not in self.compounds.unique_name_cid_map:
                     f.write(f"{norm_name}||{name}||0" + '\n')

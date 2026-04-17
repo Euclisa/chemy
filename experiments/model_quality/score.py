@@ -40,7 +40,11 @@ def build_summary(config, *, data_dir):
     generations = read_jsonl(data_dir / "generations.jsonl")
     candidates = read_jsonl(data_dir / "candidates.jsonl")
     gold = read_jsonl(data_dir / "gold_audits.jsonl")
-    gold_by_candidate = {entry["candidate_id"]: entry for entry in gold}
+    # gold_audits.jsonl is append-only; last entry per candidate_id wins.
+    gold_by_candidate = {}
+    for entry in gold:
+        if entry.get("candidate_id") is not None:
+            gold_by_candidate[entry["candidate_id"]] = entry
 
     by_model = defaultdict(_init_model_summary)
     parse_denominators = defaultdict(int)
@@ -58,9 +62,11 @@ def build_summary(config, *, data_dir):
         source_stats = reviewed_stats if reviewed_stats.get("accepted") else stats
         accepted = source_stats.get("accepted", 0)
         parse_accepts[model] += accepted
-        parse_denominators[model] += accepted
-        parse_denominators[model] += source_stats.get("invalid_schema", 0)
-        parse_denominators[model] += source_stats.get("malformed_json", 0)
+        # Sum all parse-stat counts so the denominator covers every failure
+        # category, not just the two hardcoded names.
+        parse_denominators[model] += sum(
+            v for v in source_stats.values() if isinstance(v, (int, float))
+        )
 
     for candidate in candidates:
         model = candidate["model"]

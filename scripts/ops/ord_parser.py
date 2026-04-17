@@ -377,7 +377,7 @@ class OrdParser:
                             name,
                             flags=re.IGNORECASE,
                         )
-                        return self.compounds.normalize_chem_name(name.strip(), is_clean=True)
+                        return self.compounds.normalize_chem_name(name.strip())
 
                     original_name = substance.get('name')
                     if smiles in smiles_cid_ord_map:
@@ -495,7 +495,7 @@ class OrdParser:
                 if not name:
                     return True
 
-                norm_name = self.compounds.normalize_chem_name(name, is_clean=True)
+                norm_name = self.compounds.normalize_chem_name(name)
                 if norm_name in self.compounds.unique_name_cid_map:
                     unmapped_chem = self.compounds.build_chem(-1, name, smiles)
                     if not unmapped_chem:

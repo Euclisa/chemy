@@ -9,7 +9,7 @@ class ConflictResolver:
         chem = self.compounds.cid_chem_map[cid]
         raw_synonyms = [
             syn for syn in chem['cmpdsynonym']
-            if self.compounds.normalize_chem_name(syn, is_clean=True) == norm_synonym
+            if self.compounds.normalize_chem_name(syn) == norm_synonym
         ]
         return {
             'cid': cid,
@@ -64,10 +64,7 @@ class ConflictResolver:
                 syns_to_del = cids_syns_to_del[cid]
                 chem['cmpdsynonym'] = list(
                     filter(
-                        lambda value: self.compounds.normalize_chem_name(
-                            value,
-                            is_clean=True,
-                        ) not in syns_to_del,
+                        lambda value: self.compounds.normalize_chem_name(value) not in syns_to_del,
                         chem['cmpdsynonym'],
                     )
                 )
@@ -75,10 +72,7 @@ class ConflictResolver:
                     self.logger.log(f"Removed compound {cid} (no synonyms left)")
                     continue
 
-                if self.compounds.normalize_chem_name(
-                    chem['cmpdname'],
-                    is_clean=True,
-                ) in syns_to_del:
+                if self.compounds.normalize_chem_name(chem['cmpdname']) in syns_to_del:
                     if self.compounds.is_chem_mapped(chem):
                         chem['cmpdname'] = chem['cmpdsynonym'][0]
                     else:
@@ -127,7 +121,7 @@ class ConflictResolver:
             def get_conflict_inds(chem):
                 return [
                     i for i, value in enumerate(chem['cmpdsynonym'])
-                    if self.compounds.normalize_chem_name(value, is_clean=True) == conflict_norm_name
+                    if self.compounds.normalize_chem_name(value) == conflict_norm_name
                 ]
 
             def get_conflict_synonyms_str(syns, conflict_inds):

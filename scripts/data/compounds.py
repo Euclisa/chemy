@@ -177,10 +177,10 @@ class CompoundStore:
         _name_cids_map = dict()
         for chem in self.chems:
             cid = chem['cid']
-            norm_name = self.normalize_chem_name(chem['cmpdname'], is_clean=True)
+            norm_name = self.normalize_chem_name(chem['cmpdname'])
             _name_cids_map.setdefault(norm_name, set()).add(cid)
             for syn in chem['cmpdsynonym']:
-                norm_name = self.normalize_chem_name(syn, is_clean=True)
+                norm_name = self.normalize_chem_name(syn)
                 _name_cids_map.setdefault(norm_name, set()).add(cid)
 
         return MappingProxyType({
@@ -242,7 +242,7 @@ class CompoundStore:
     def _normalize_synonym_filter_decision(self, entry):
         norm_synonym = entry.get('norm_synonym')
         if norm_synonym is None and entry.get('synonym') is not None:
-            norm_synonym = self.normalize_chem_name(entry['synonym'], is_clean=True)
+            norm_synonym = self.normalize_chem_name(entry['synonym'])
 
         return {
             'cid': int(entry['cid']),
@@ -305,13 +305,13 @@ class CompoundStore:
                 )
                 if not result.accepted and result.reason:
                     rejected_by_reason[result.reason] += 1
-                norm_name = self.normalize_chem_name(syn, is_clean=True)
+                norm_name = self.normalize_chem_name(syn)
                 normalized_to_cids.setdefault(norm_name, set()).add(cid)
 
         for chem in chems:
             cid = chem['cid']
             for syn in chem.get('cmpdsynonym') or []:
-                norm_name = self.normalize_chem_name(syn, is_clean=True)
+                norm_name = self.normalize_chem_name(syn)
                 if normalized_to_cids.get(norm_name) == {cid}:
                     exported_synonyms += 1
 
@@ -511,17 +511,15 @@ class CompoundStore:
     def __chem_name_to_ascii(self, chem_name_raw):
         return chem_names.chem_name_to_ascii(chem_name_raw)
 
-    def clean_chem_name(self, chem_name_raw, is_clean=False):
+    def clean_chem_name(self, chem_name_raw):
         return chem_names.clean_chem_name(
             chem_name_raw,
-            is_clean=is_clean,
             unknown_name=self.unknown_name_ph,
         )
 
-    def normalize_chem_name(self, chem_name_raw, is_clean=False):
+    def normalize_chem_name(self, chem_name_raw):
         return chem_names.normalize_chem_name(
             chem_name_raw,
-            is_clean=is_clean,
             unknown_name=self.unknown_name_ph,
         )
 

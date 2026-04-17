@@ -12,20 +12,13 @@ from scripts.ops.raw_reactions.services import (
 )
 
 from .helpers import (
+    NotebookLogger,
     append_jsonl,
     build_arg_parser,
     load_config,
     read_jsonl,
     resolve_path,
 )
-
-
-class _NotebookLogger:
-    def log(self, message):
-        print(message)
-
-    def track(self, iterable, *args, **kwargs):
-        return iterable
 
 
 def _completed_generation_ids(path):
@@ -73,6 +66,7 @@ def run_generation(
     config,
     *,
     data_dir,
+    root=None,
     llm_client=None,
     models=None,
     run_limit=None,
@@ -80,14 +74,20 @@ def run_generation(
     logger=None,
 ):
     data_dir = Path(data_dir)
-    chemy_data_dir = resolve_path(config["chemy_data_dir"])
+    chemy_data_dir = resolve_path(config["chemy_data_dir"], root=root)
     chemy = Chemy(str(chemy_data_dir))
     llm_client = llm_client or LLMClient()
     models = models or config["candidate_models"]
     max_workers = max_workers or config.get("max_workers", 1)
-    logger = logger or getattr(chemy, "logger", None) or _NotebookLogger()
+    logger = logger or getattr(chemy, "logger", None) or NotebookLogger()
 
-    tasks = [ReactionTask.from_dict(entry) for entry in read_jsonl(data_dir / "tasks.jsonl")]
+    tasks_path = data_dir / "tasks.jsonl"
+    if not tasks_path.exists():
+        raise FileNotFoundError(
+            f"tasks.jsonl not found at {tasks_path}. "
+            "Run `python -m experiments.model_quality.sample` first."
+        )
+    tasks = [ReactionTask.from_dict(entry) for entry in read_jsonl(tasks_path)]
     generations_path = data_dir / "generations.jsonl"
     candidates_path = data_dir / "candidates.jsonl"
     manifests_dir = data_dir / "manifests"

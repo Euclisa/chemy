@@ -3,6 +3,7 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+import yaml
 from scripts.infra.store import JsonlStore
 
 
@@ -38,67 +39,6 @@ DEFAULT_CONFIG = {
 }
 
 
-def _parse_scalar(value):
-    value = value.strip()
-    if value in {"", "null", "None", "~"}:
-        return None
-    if value.startswith("[") and value.endswith("]"):
-        try:
-            return json.loads(value)
-        except json.JSONDecodeError:
-            return [
-                item.strip().strip('"').strip("'")
-                for item in value[1:-1].split(",")
-                if item.strip()
-            ]
-    if value in {"true", "True"}:
-        return True
-    if value in {"false", "False"}:
-        return False
-    if (
-        (value.startswith('"') and value.endswith('"'))
-        or (value.startswith("'") and value.endswith("'"))
-    ):
-        return value[1:-1]
-    try:
-        return int(value)
-    except ValueError:
-        pass
-    try:
-        return float(value)
-    except ValueError:
-        return value
-
-
-def _load_simple_yaml(path):
-    """Load the small YAML subset used by config.yaml without adding PyYAML."""
-    root = {}
-    stack = [(-1, root)]
-    with open(path) as f:
-        for raw_line in f:
-            if not raw_line.strip() or raw_line.lstrip().startswith("#"):
-                continue
-            indent = len(raw_line) - len(raw_line.lstrip(" "))
-            line = raw_line.strip()
-            if ":" not in line:
-                raise ValueError(f"Unsupported config line: {raw_line.rstrip()}")
-            key, value = line.split(":", 1)
-            key = key.strip()
-            value = value.strip()
-
-            while indent <= stack[-1][0]:
-                stack.pop()
-
-            parent = stack[-1][1]
-            if value == "":
-                node = {}
-                parent[key] = node
-                stack.append((indent, node))
-            else:
-                parent[key] = _parse_scalar(value)
-    return root
-
-
 def deep_merge(base, override):
     merged = deepcopy(base)
     for key, value in override.items():
@@ -115,7 +55,8 @@ def load_config(path=DEFAULT_CONFIG_PATH):
     path = Path(path)
     if not path.exists():
         return deepcopy(DEFAULT_CONFIG)
-    loaded = _load_simple_yaml(path)
+    with open(path) as f:
+        loaded = yaml.safe_load(f) or {}
     return deep_merge(DEFAULT_CONFIG, loaded)
 
 
@@ -164,3 +105,16 @@ def add_common_args(parser):
 
 def build_arg_parser(description):
     return add_common_args(argparse.ArgumentParser(description=description))
+
+
+class NotebookLogger:
+    """Minimal logger for notebook/CLI contexts that have no rich progress UI."""
+
+    def log(self, message):
+        print(message)
+
+    def log_err(self, message):
+        print(f"ERROR: {message}")
+
+    def track(self, iterable, *args, **kwargs):
+        return iterable

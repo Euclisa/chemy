@@ -146,7 +146,10 @@ def test_reaction_name_lookup_fails_closed_on_ambiguous_synonyms(ops_context):
     beta = make_chem(502, "Beta", "CCCl", synonyms=["Beta", "Shared"], complexity=20)
     ops_context.compounds.update_chems(list(ops_context.compounds.chems) + [alpha, beta])
 
-    reaction, unmapped = ops_context.reaction_llm.parse_reaction_scheme("Shared + Water -> Methanol")
+    reaction, unmapped = ops_context.reaction_llm.parse_structured_reaction({
+        "reagents": [{"name": "Shared", "phase": "s"}, {"name": "Water", "phase": "l"}],
+        "products": [{"name": "Methanol", "phase": "l"}],
+    })
 
     assert reaction is None
     assert ("shared", "Shared") in unmapped

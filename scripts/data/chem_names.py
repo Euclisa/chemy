@@ -90,52 +90,24 @@ def chem_name_to_ascii(chem_name_raw):
     return chem_name_ascii
 
 
-def clean_chem_name(chem_name_raw, is_clean=False, unknown_name=UNKNOWN_NAME):
+def clean_chem_name(chem_name_raw, unknown_name=UNKNOWN_NAME):
     if chem_name_raw == unknown_name:
         return unknown_name
 
     chem_name = chem_name_to_ascii(chem_name_raw)
     chem_name = chem_name.strip()
     chem_name = re.sub(r'\s+', ' ', chem_name)
-
-    if not is_clean:
-        chem_name = chem_name.strip('`\'".,;:')
-        chem_name = re.sub(r'^\d+ ', '', chem_name)
-
     return chem_name
 
 
-def normalize_chem_name(chem_name_raw, is_clean=False, unknown_name=UNKNOWN_NAME):
+def normalize_chem_name(chem_name_raw, unknown_name=UNKNOWN_NAME):
     if chem_name_raw == unknown_name:
         return unknown_name
 
-    chem_name = clean_chem_name(chem_name_raw, is_clean=is_clean, unknown_name=unknown_name)
+    chem_name = clean_chem_name(chem_name_raw, unknown_name=unknown_name)
     chem_name = chem_name.lower()
     chem_name = chem_name.strip()
     chem_name = chem_name.replace('aluminum', 'aluminium')
-
-    if not is_clean:
-        chem_name = re.sub(r' \([^\d]+\)$', '', chem_name)
-        chem_name = chem_name.replace(' vapor', '')
-        chem_name = chem_name.replace(' dust', '')
-        chem_name = chem_name.replace('solution', '')
-        chem_name = chem_name.replace('concentrated', '')
-        chem_name = chem_name.replace('dilute ', '')
-        chem_name = chem_name.replace('fuming ', '')
-        chem_name = chem_name.replace('solid', '')
-        chem_name = chem_name.replace('glacial ', '')
-        chem_name = chem_name.replace('elemental', '')
-        chem_name = chem_name.replace(' metal', '')
-        chem_name = chem_name.replace('aqueous', '')
-        chem_name = chem_name.replace(' gas', '')
-        chem_name = chem_name.replace('hot ', '')
-        chem_name = chem_name.replace('uv light', 'light')
-        chem_name = chem_name.replace('blue light', 'light')
-        chem_name = chem_name.replace('ultraviolet light', 'light')
-
-        if 'catalyst' in chem_name or 'raney nickel' in chem_name:
-            chem_name = 'catalyst'
-
     return re.sub(r'\s+', '', chem_name)
 
 
@@ -143,7 +115,7 @@ def clean_synonym(name, unknown_name=UNKNOWN_NAME):
     if name == unknown_name:
         return unknown_name
 
-    name = clean_chem_name(name, is_clean=True, unknown_name=unknown_name)
+    name = clean_chem_name(name, unknown_name=unknown_name)
     pattern = r'[\(\[]\s*(?:' + '|'.join(re.escape(tag) for tag in SYNONYM_TAGS) + r')\s*[\)\]]$'
     name = re.sub(pattern, '', name, flags=re.IGNORECASE).strip()
     name = re.sub(r'\bfume\b', '', name, flags=re.IGNORECASE).strip()
@@ -160,7 +132,7 @@ def classify_name(name, manual_filtered=None, unknown_name=UNKNOWN_NAME):
         return NameFilterResult(False, 'empty', None, None)
 
     clean_name = clean_synonym(name, unknown_name=unknown_name)
-    norm_name = normalize_chem_name(clean_name, is_clean=True, unknown_name=unknown_name)
+    norm_name = normalize_chem_name(clean_name, unknown_name=unknown_name)
 
     if norm_name in manual_filtered:
         return NameFilterResult(False, 'manual_decision', clean_name, norm_name)

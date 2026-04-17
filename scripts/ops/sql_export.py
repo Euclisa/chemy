@@ -63,7 +63,7 @@ class SqlExporter:
                     if (
                         syn
                         and self.compounds.unique_name_cid_map.get(
-                            self.compounds.normalize_chem_name(syn, is_clean=True)
+                            self.compounds.normalize_chem_name(syn)
                         ) == chem['cid']
                     )
                 ]

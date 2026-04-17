@@ -169,16 +169,57 @@ def test_hazard_assembler_prefers_wiki_and_fills_from_llm(ops_context):
     assert hazards[ops_context.methanol["cid"]]["pictograms"]["value"] == ["GHS06", "GHS02"]
 
 
-def test_reaction_llm_parser_parses_control_words_and_unmapped_names(ops_context):
-    reaction, unmapped = ops_context.reaction_llm.parse_reaction_scheme("Water + heat -> Ethanol")
+def test_parse_structured_reaction_resolves_clean_names_to_cids(ops_context):
+    reaction, unmapped = ops_context.reaction_llm.parse_structured_reaction({
+        "reagents": [{"name": "Water", "phase": "l"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    })
+
     assert reaction is not None
+    assert unmapped == set()
     assert [entry["cid"] for entry in reaction["reagents"]] == [ops_context.water["cid"]]
     assert [entry["cid"] for entry in reaction["products"]] == [ops_context.ethanol["cid"]]
-    assert unmapped == set()
 
-    reaction, unmapped = ops_context.reaction_llm.parse_reaction_scheme(
-        "Water + Mystery Reagent -> Methanol"
-    )
+
+def test_parse_structured_reaction_preserves_phase_and_note(ops_context):
+    reaction, unmapped = ops_context.reaction_llm.parse_structured_reaction({
+        "reagents": [{"name": "Water", "phase": "aq", "note": "excess"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    })
+
+    assert reaction is not None
+    assert reaction["reagents"][0]["phase"] == "aq"
+    assert reaction["reagents"][0]["note"] == "excess"
+    assert "note" not in reaction["products"][0]
+
+
+def test_parse_structured_reaction_skips_control_words(ops_context):
+    reaction, unmapped = ops_context.reaction_llm.parse_structured_reaction({
+        "reagents": [{"name": "Water", "phase": "l"}, {"name": "heat", "phase": "g"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    })
+
+    assert reaction is not None
+    assert unmapped == set()
+    assert [entry["cid"] for entry in reaction["reagents"]] == [ops_context.water["cid"]]
+
+
+def test_parse_structured_reaction_misses_on_qualifier_in_name(ops_context):
+    reaction, unmapped = ops_context.reaction_llm.parse_structured_reaction({
+        "reagents": [{"name": "concentrated Water", "phase": "l"}],
+        "products": [{"name": "Ethanol", "phase": "l"}],
+    })
+
+    assert reaction is None
+    assert any("concentrated" in norm for norm, _ in unmapped)
+
+
+def test_parse_structured_reaction_fails_on_unknown_name(ops_context):
+    reaction, unmapped = ops_context.reaction_llm.parse_structured_reaction({
+        "reagents": [{"name": "Water", "phase": "l"}, {"name": "Mystery Reagent", "phase": "s"}],
+        "products": [{"name": "Methanol", "phase": "l"}],
+    })
+
     assert reaction is None
     assert ("mysteryreagent", "Mystery Reagent") in unmapped
 

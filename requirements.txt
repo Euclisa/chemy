@@ -19,3 +19,6 @@ protobuf
 
 # API client
 openai
+
+# Config parsing
+pyyaml

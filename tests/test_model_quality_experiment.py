@@ -151,30 +151,8 @@ def test_gold_audit_parallel_batches_aggregate_one_row_per_candidate(tmp_path):
     ]
     write_jsonl(candidates, data_dir / "candidates.jsonl")
     response = "\n".join([
-        json.dumps({
-            "index": 1,
-            "valid_chemistry": True,
-            "documented_or_standard": True,
-            "target_compound_present": True,
-            "target_position_correct": True,
-            "phase_ok": True,
-            "roles_ok": True,
-            "solvent_catalyst_ok": True,
-            "error_category": None,
-            "confidence": 0.9,
-        }),
-        json.dumps({
-            "index": 2,
-            "valid_chemistry": False,
-            "documented_or_standard": False,
-            "target_compound_present": True,
-            "target_position_correct": True,
-            "phase_ok": True,
-            "roles_ok": False,
-            "solvent_catalyst_ok": True,
-            "error_category": "wrong_chemistry",
-            "confidence": 0.2,
-        }),
+        json.dumps({"index": 1, "valid": True}),
+        json.dumps({"index": 2, "valid": False}),
     ])
     client = FakeLLMClient([response, response])
     config = {

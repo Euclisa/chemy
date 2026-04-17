@@ -1,7 +1,6 @@
 import hashlib
 import json
 import time
-from collections import Counter
 
 from .presets import POSITION_ANY, POSITION_PRODUCT, POSITION_REAGENT
 from .prompts import (
@@ -513,27 +512,9 @@ class RawReactionRepairService:
 def aggregate_gold_votes(votes):
     if not votes:
         return {}
-    bool_fields = [
-        "valid_chemistry",
-        "documented_or_standard",
-        "target_compound_present",
-        "target_position_correct",
-        "phase_ok",
-        "roles_ok",
-        "solvent_catalyst_ok",
-    ]
-    result = {}
-    for field in bool_fields:
-        vals = [vote.get(field) for vote in votes if isinstance(vote.get(field), bool)]
-        result[field] = (sum(vals) / len(vals) >= 0.5) if vals else None
-    positives = [vote.get("valid_chemistry") is True for vote in votes]
-    result["gold_rounds"] = len(votes)
-    result["gold_positives"] = sum(1 for item in positives if item)
-    result["gold_confidence"] = result["gold_positives"] / len(votes)
-    categories = Counter(
-        vote.get("error_category") or "none"
-        for vote in votes
-        if isinstance(vote, dict)
-    )
-    result["error_category"] = categories.most_common(1)[0][0] if categories else None
-    return result
+    positives = sum(1 for v in votes if v.get("valid") is True)
+    return {
+        "gold_rounds": len(votes),
+        "gold_positives": positives,
+        "gold_confidence": positives / len(votes),
+    }
